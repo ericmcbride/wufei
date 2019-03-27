@@ -1,0 +1,9 @@
+[package]
+name = "wufei"
+version = "0.1.0"
+authors = ["Eric McBride <ericmcbridedeveloper@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.31.2"
+random_color = "0.4.4"
