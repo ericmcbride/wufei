@@ -1,3 +1,5 @@
+use colored::*;
+use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -39,7 +41,6 @@ pub fn run_logs(log_options: &LogRecorderConfig) {
 
 fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
     let mut children = vec![];
-
     for (k, v) in pod_hashmap {
         // Do this to avoid lifetimes on LogRecorderConfig
         let namespace = log_options.namespace.clone();
@@ -67,6 +68,24 @@ fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String
     let container = get_app_container(&v.container);
     let out_file = File::create(&k.to_string()).unwrap();
     let deploy_string = "deployment/".to_string() + &container;
+    let colors_vec = vec![
+        "green",
+        "red",
+        "yellow",
+        "blue",
+        "cyan",
+        "magenta",
+        "white",
+        "bright black",
+        "bright red",
+        "bright green",
+        "bright yellow",
+        "bright blue",
+        "bright magenta",
+        "bright cyan",
+    ];
+    let color = colors_vec.choose(&mut rand::thread_rng()); // get random color
+    let str_color = color.unwrap(); // unwrap random
 
     // build arguments based off LogRecorderConfiguration
     // If kube_config is not empty, use kube config
@@ -87,6 +106,7 @@ fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String
     } else {
         kube_cmd.stdout(Stdio::piped());
     }
+
     // Spin off child process
     let output = kube_cmd
         .spawn()
@@ -97,10 +117,14 @@ fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String
 
     // TODO: add loop here to write to a file forever until a siglkill happens to stream to a file
     let reader = BufReader::new(output);
+    let mut log_prefix = "[pod] ".to_string();
+    log_prefix = log_prefix + "[" + &v.name + "]";
+
+    log_prefix = log_prefix.color(str_color.to_string()).to_string();
     reader
         .lines()
         .filter_map(|line| line.ok())
-        .for_each(|line| println!("[pod] [{}]: {}", &v.name, line));
+        .for_each(|line| println!("{}: {}", &log_prefix, line));
 }
 
 fn get_app_container(containers: &str) -> String {
