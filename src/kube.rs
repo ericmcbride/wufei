@@ -1,66 +1,106 @@
-use std::process::{Command, Stdio};
 use std::fs::File;
-
-use std::collections::HashMap;
-use std::str;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use std::thread;
 
 use crate::utils;
+use std::collections::HashMap;
+use std::str;
 
 #[derive(Debug)]
 pub struct LogRecorderConfig {
     namespace: String,
+    kube_config: String,
+    file: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PodInfo {
     name: String,
     container: String,
 }
 
-
 impl LogRecorderConfig {
-    pub fn new(namespace: String) -> LogRecorderConfig {
+    pub fn new(namespace: String, kube_config: String, file: bool) -> LogRecorderConfig {
         LogRecorderConfig {
             namespace: namespace,
+            kube_config: kube_config,
+            file: file,
         }
     }
 }
-
 
 // Returns a Hashmap of Log FilePath, PodInfo <Returns Hashmap <String Podinfo>
-pub fn run_logs(log_options: &LogRecorderConfig)  {
+pub fn run_logs(log_options: &LogRecorderConfig) {
     let pod_vec = get_all_pod_info(&log_options.namespace);
     let pod_hashmap = generate_hashmap(pod_vec);
-    run_cmd(pod_hashmap, &log_options.namespace);
+    run_cmd(pod_hashmap, &log_options);
 }
 
+fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
+    let mut children = vec![];
 
-fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, namespace:&str) {
-    let mut kube_cmd = Command::new("kubectl");
-    let last_element_count = pod_hashmap.len();
-    let mut count = 0;
-    for (k, v) in pod_hashmap.iter() {
-        let container = get_app_container(&v.container);
-        let out_file = File::create(&k).unwrap();
-        if count != last_element_count && count != 0 {
-            kube_cmd.arg("&");
-            kube_cmd.arg("kubectl");
-        }
-        
-        let deploy_string = "deployment/".to_string() + &container;
-        kube_cmd.arg("--kubeconfig");
-        kube_cmd.arg("kube.config");
-        kube_cmd.arg("logs");
-        kube_cmd.arg(&deploy_string);
-        kube_cmd.arg(&container);
-        kube_cmd.arg("-n");
-        kube_cmd.arg(&namespace);
-        kube_cmd.stdout(Stdio::from(out_file));
-
-        count += 1
+    for (k, v) in pod_hashmap {
+        // Do this to avoid lifetimes on LogRecorderConfig
+        let namespace = log_options.namespace.clone();
+        let kube_config = log_options.kube_config.clone();
+        let file = log_options.file.clone();
+        children.push(thread::spawn(move || {
+            run_individual(
+                k.to_string(),
+                &v,
+                namespace.to_owned(),
+                kube_config.to_owned(),
+                file.to_owned(),
+            )
+        }));
     }
 
-    let output = kube_cmd.output().expect("Couldn't run command");
+    for child in children {
+        let _ = child.join();
+    }
+}
+
+// TODO: Make colored pod name and option to differentiate between logs being streamed
+fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String, file: bool) {
+    let mut kube_cmd = Command::new("kubectl");
+    let container = get_app_container(&v.container);
+    let out_file = File::create(&k.to_string()).unwrap();
+    let deploy_string = "deployment/".to_string() + &container;
+
+    // build arguments based off LogRecorderConfiguration
+    // If kube_config is not empty, use kube config
+    if kube_config.len() != 0 {
+        kube_cmd.arg("--kubeconfig");
+        kube_cmd.arg(&kube_config);
+    }
+
+    kube_cmd.arg("logs");
+    kube_cmd.arg("-f");
+    kube_cmd.arg(&deploy_string);
+    kube_cmd.arg(&container);
+    kube_cmd.arg("-n");
+    kube_cmd.arg(&namespace);
+
+    if file {
+        kube_cmd.stdout(Stdio::from(out_file));
+    } else {
+        kube_cmd.stdout(Stdio::piped());
+    }
+    // Spin off child process
+    let output = kube_cmd
+        .spawn()
+        .unwrap()
+        .stdout
+        .ok_or_else(|| "Unable to follow kube logs")
+        .unwrap();
+
+    // TODO: add loop here to write to a file forever until a siglkill happens to stream to a file
+    let reader = BufReader::new(output);
+    reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .for_each(|line| println!("[pod] [{}]: {}", &v.name, line));
 }
 
 fn get_app_container(containers: &str) -> String {
@@ -68,10 +108,10 @@ fn get_app_container(containers: &str) -> String {
     // istio resources right now)
     let container = containers.split_whitespace();
     let container_vec: Vec<&str> = container.collect();
-    return container_vec[0].to_string()
+    return container_vec[0].to_string();
 }
 
-fn get_all_pod_info(namespace: &str) -> Vec<String>  {
+fn get_all_pod_info(namespace: &str) -> Vec<String> {
     let output = Command::new("kubectl")
         .args(&["--kubeconfig", "kube.config"])
         .args(&["get", "pods"])
@@ -87,7 +127,7 @@ fn get_all_pod_info(namespace: &str) -> Vec<String>  {
     utils::str_to_string(pods_vec)
 }
 
-fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo>  {
+fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo> {
     let mut pods_hashmap = HashMap::new();
     for info in pod_vec {
         // Empty namespaces happen for some reason.  Breaks the indices
@@ -109,12 +149,12 @@ fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo>  {
 
         pods_hashmap.insert(
             file_path,
-            PodInfo{
+            PodInfo {
                 name: name.to_string(),
                 container: containers.to_string(),
-            }
+            },
         );
-    };
+    }
 
     pods_hashmap
 }

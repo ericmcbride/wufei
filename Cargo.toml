@@ -6,4 +6,4 @@ edition = "2018"
 
 [dependencies]
 clap = "2.31.2"
-random_color = "0.4.4"
+termcolor = "1"
