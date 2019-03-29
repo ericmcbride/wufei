@@ -18,15 +18,14 @@ pub fn set_args(args: &ArgMatches) -> Result<kube::LogRecorderConfig, Box<::std:
     } else {
         ""
     };
-    let file = if let Some(_) = args.value_of("FILE") {
-        true
-    } else {
-        false // if not passed set to false
-    };
+
+    let file = args.is_present("FILE");
+    let color = args.is_present("COLOR");
 
     Ok(kube::LogRecorderConfig::new(
         namespace.to_string(),
         kube_config.to_string(),
         file,
+        color,
     ))
 }

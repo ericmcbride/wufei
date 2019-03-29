@@ -22,7 +22,8 @@ fn run() -> Result<(kube::LogRecorderConfig), Box<::std::error::Error>> {
         (about: "View All Logs from Kubernetes Namespace")
         (@arg NAMESPACE: -n --namespace +required +takes_value "Namespace for logs")
         (@arg KUBECONFIG: -k --kubeconfig +takes_value "Kube config file if not using context")
-        (@arg FILE: -f --file "Write logs to files based on pod name /tmp/podname  (defaults to false)")
+        (@arg FILE: -f --file "Write logs to files based on pod name /tmp/podname")
+        (@arg COLOR: --color "Show colored output")
     )
     .get_matches();
 
