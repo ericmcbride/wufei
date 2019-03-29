@@ -9,11 +9,29 @@ use crate::utils;
 use std::collections::HashMap;
 use std::str;
 
+static COLOR_VEC: &'static [&str] = &[
+    "green",
+    "red",
+    "yellow",
+    "blue",
+    "cyan",
+    "magenta",
+    "white",
+    "bright black",
+    "bright red",
+    "bright green",
+    "bright yellow",
+    "bright blue",
+    "bright magenta",
+    "bright cyan",
+];
+
 #[derive(Debug)]
 pub struct LogRecorderConfig {
     namespace: String,
     kube_config: String,
     file: bool,
+    color: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -23,11 +41,17 @@ pub struct PodInfo {
 }
 
 impl LogRecorderConfig {
-    pub fn new(namespace: String, kube_config: String, file: bool) -> LogRecorderConfig {
+    pub fn new(
+        namespace: String,
+        kube_config: String,
+        file: bool,
+        color: bool,
+    ) -> LogRecorderConfig {
         LogRecorderConfig {
             namespace: namespace,
             kube_config: kube_config,
             file: file,
+            color: color,
         }
     }
 }
@@ -46,6 +70,7 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
         let file = log_options.file.clone();
+        let color = log_options.color.clone();
         children.push(thread::spawn(move || {
             run_individual(
                 k.to_string(),
@@ -53,6 +78,7 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
                 namespace.to_owned(),
                 kube_config.to_owned(),
                 file.to_owned(),
+                color.to_owned(),
             )
         }));
     }
@@ -63,28 +89,19 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
 }
 
 // TODO: Make colored pod name and option to differentiate between logs being streamed
-fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String, file: bool) {
+fn run_individual(
+    k: String,
+    v: &PodInfo,
+    namespace: String,
+    kube_config: String,
+    file: bool,
+    color_on: bool,
+) {
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
     let out_file = File::create(&k.to_string()).unwrap();
     let deploy_string = "deployment/".to_string() + &container;
-    let colors_vec = vec![
-        "green",
-        "red",
-        "yellow",
-        "blue",
-        "cyan",
-        "magenta",
-        "white",
-        "bright black",
-        "bright red",
-        "bright green",
-        "bright yellow",
-        "bright blue",
-        "bright magenta",
-        "bright cyan",
-    ];
-    let color = colors_vec.choose(&mut rand::thread_rng()); // get random color
+    let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
     let str_color = color.unwrap(); // unwrap random
 
     // build arguments based off LogRecorderConfiguration
@@ -120,7 +137,10 @@ fn run_individual(k: String, v: &PodInfo, namespace: String, kube_config: String
     let mut log_prefix = "[pod] ".to_string();
     log_prefix = log_prefix + "[" + &v.name + "]";
 
-    log_prefix = log_prefix.color(str_color.to_string()).to_string();
+    if color_on {
+        log_prefix = log_prefix.color(str_color.to_string()).to_string();
+    }
+
     reader
         .lines()
         .filter_map(|line| line.ok())
