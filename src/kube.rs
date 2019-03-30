@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::thread;
-
+use std::io::Write;
 use crate::utils;
 use std::collections::HashMap;
 use std::str;
@@ -88,7 +88,6 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
     }
 }
 
-// TODO: Make colored pod name and option to differentiate between logs being streamed
 fn run_individual(
     k: String,
     v: &PodInfo,
@@ -99,7 +98,6 @@ fn run_individual(
 ) {
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
-    let out_file = File::create(&k.to_string()).unwrap();
     let deploy_string = "deployment/".to_string() + &container;
     let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
     let str_color = color.unwrap(); // unwrap random
@@ -117,12 +115,7 @@ fn run_individual(
     kube_cmd.arg(&container);
     kube_cmd.arg("-n");
     kube_cmd.arg(&namespace);
-
-    if file {
-        kube_cmd.stdout(Stdio::from(out_file));
-    } else {
-        kube_cmd.stdout(Stdio::piped());
-    }
+    kube_cmd.stdout(Stdio::piped());
 
     // Spin off child process
     let output = kube_cmd
@@ -140,11 +133,22 @@ fn run_individual(
     if color_on {
         log_prefix = log_prefix.color(str_color.to_string()).to_string();
     }
+    if file {
+        let mut out_file = File::create(&k.to_string()).unwrap();
+        reader
+            .lines()
+            .filter_map(|line| line.ok())
+            .for_each(|line| {
+                println!("{}: {}", &log_prefix, line);
+                out_file.write(&line.as_bytes()).unwrap();
+            });
 
-    reader
-        .lines()
-        .filter_map(|line| line.ok())
-        .for_each(|line| println!("{}: {}", &log_prefix, line));
+    } else {
+        reader
+            .lines()
+            .filter_map(|line| line.ok())
+            .for_each(|line| println!("{}: {}", &log_prefix, line));
+    }
 }
 
 fn get_app_container(containers: &str) -> String {
