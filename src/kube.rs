@@ -1,13 +1,13 @@
+use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
+use std::collections::HashMap;
 use std::fs::File;
+use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::thread;
-use std::io::Write;
-use crate::utils;
-use std::collections::HashMap;
 use std::str;
+use std::thread;
 
 static COLOR_VEC: &'static [&str] = &[
     "green",
@@ -66,7 +66,7 @@ pub fn run_logs(log_options: &LogRecorderConfig) {
 fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
     let mut children = vec![];
     for (k, v) in pod_hashmap {
-        // Do this to avoid lifetimes on LogRecorderConfig
+        // Do this to avoid lifetimes on LogRecorderConfig, fix later using lifetimes
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
         let file = log_options.file.clone();
@@ -99,8 +99,6 @@ fn run_individual(
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
     let deploy_string = "deployment/".to_string() + &container;
-    let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
-    let str_color = color.unwrap(); // unwrap random
 
     // build arguments based off LogRecorderConfiguration
     // If kube_config is not empty, use kube config
@@ -125,14 +123,16 @@ fn run_individual(
         .ok_or_else(|| "Unable to follow kube logs")
         .unwrap();
 
-    // TODO: add loop here to write to a file forever until a siglkill happens to stream to a file
     let reader = BufReader::new(output);
     let mut log_prefix = "[pod] ".to_string();
     log_prefix = log_prefix + "[" + &v.name + "]";
 
     if color_on {
-        log_prefix = log_prefix.color(str_color.to_string()).to_string();
+        let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
+        let str_color = color.unwrap().to_string(); // unwrap random
+        log_prefix = log_prefix.color(str_color).to_string();
     }
+
     if file {
         let mut out_file = File::create(&k.to_string()).unwrap();
         reader
@@ -142,7 +142,6 @@ fn run_individual(
                 println!("{}: {}", &log_prefix, line);
                 out_file.write(&line.as_bytes()).unwrap();
             });
-
     } else {
         reader
             .lines()
