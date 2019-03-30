@@ -4,7 +4,7 @@ Wufei is a Rust CLI Tool for the aggregation of Kubernetes logs. I had a use cas
 Heavily inspired by https://github.com/johanhaleby/kubetail Kubetail.
 
 
-![Wufei](wufei.jpg?raw=true "Wufei")
+![Wufei](wufei.jpeg?raw=true "Wufei")
 
 ## Installation
 As of right now, Wufei is NOT part of cargo.  Its on my todo list.  Right now just do cargo build in the root of the the project, and then access the wufei in target/debug/wufei
