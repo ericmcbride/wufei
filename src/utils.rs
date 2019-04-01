@@ -2,12 +2,7 @@ use crate::kube;
 use clap::ArgMatches;
 
 pub fn str_to_string(input: Vec<&str>) -> Vec<String> {
-    // TODO MAKE FUNCTIONAL INSTAED OF IMPERATIVE
-    let mut string_vec = Vec::new();
-    for x in input {
-        string_vec.push(x.to_owned());
-    }
-    string_vec
+    input.iter().map(|&x| x.to_string()).collect()
 }
 
 pub fn set_args(args: &ArgMatches) -> Result<kube::LogRecorderConfig, Box<::std::error::Error>> {
