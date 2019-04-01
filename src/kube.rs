@@ -83,9 +83,7 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
         }));
     }
 
-    for child in children {
-        let _ = child.join();
-    }
+    let _: Vec<_> = children.into_iter().map(|thread| thread.join()).collect();
 }
 
 fn run_individual(
