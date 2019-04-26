@@ -57,10 +57,11 @@ impl LogRecorderConfig {
 }
 
 // Returns a Hashmap of Log FilePath, PodInfo <Returns Hashmap <String Podinfo>
-pub fn run_logs(log_options: &LogRecorderConfig) {
-    let pod_vec = get_all_pod_info(&log_options.namespace);
+pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error::Error>> {
+    let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
     let pod_hashmap = generate_hashmap(pod_vec);
     run_cmd(pod_hashmap, &log_options);
+    Ok(())
 }
 
 fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
@@ -156,20 +157,27 @@ fn get_app_container(containers: &str) -> String {
     return container_vec[0].to_string();
 }
 
-fn get_all_pod_info(namespace: &str) -> Vec<String> {
+fn get_all_pod_info(
+    namespace: &str,
+    kube_config: &str,
+) -> Result<Vec<String>, Box<::std::error::Error>> {
     let output = Command::new("kubectl")
-        .args(&["--kubeconfig", "kube.config"])
+        .args(&["--kubeconfig", &kube_config])
         .args(&["get", "pods"])
         .args(&["-n", &namespace])
         .args(&["-o", "jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}"])
         .output()
         .expect("Failed to get kubernetes pods");
 
+    if output.stderr.len() != 0 {
+        let byte_string = String::from_utf8_lossy(&output.stderr);
+        utils::generate_err(byte_string.to_string())?
+    }
     // if error handle it here
     // if output.stderr handle
     let pods = str::from_utf8(&output.stdout).unwrap();
     let pods_vec: Vec<&str> = pods.split("\n").collect();
-    utils::str_to_string(pods_vec)
+    Ok(utils::str_to_string(pods_vec))
 }
 
 fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo> {

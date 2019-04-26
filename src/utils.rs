@@ -1,5 +1,6 @@
 use crate::kube;
 use clap::ArgMatches;
+use std::io::{Error, ErrorKind, Read};
 
 pub fn str_to_string(input: Vec<&str>) -> Vec<String> {
     input.iter().map(|&x| x.to_string()).collect()
@@ -23,4 +24,8 @@ pub fn set_args(args: &ArgMatches) -> Result<kube::LogRecorderConfig, Box<::std:
         file,
         color,
     ))
+}
+
+pub fn generate_err(err_msg: String) -> Result<(), Box<::std::error::Error>> {
+    Err(Box::new(Error::new(ErrorKind::Other, err_msg)))
 }
