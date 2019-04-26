@@ -1,6 +1,6 @@
 use crate::kube;
 use clap::ArgMatches;
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind};
 
 pub fn str_to_string(input: Vec<&str>) -> Vec<String> {
     input.iter().map(|&x| x.to_string()).collect()
