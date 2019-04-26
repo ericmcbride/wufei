@@ -154,7 +154,7 @@ fn get_app_container(containers: &str) -> String {
     // istio resources right now)
     let container = containers.split_whitespace();
     let container_vec: Vec<&str> = container.collect();
-    return container_vec[0].to_string();
+    container_vec[0].to_string()
 }
 
 fn get_all_pod_info(
