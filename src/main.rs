@@ -6,9 +6,14 @@ mod utils;
 
 fn main() {
     match run() {
-        Ok(log_config) => {
-            kube::run_logs(&log_config);
-        }
+        Ok(log_config) => match kube::run_logs(&log_config) {
+            Ok(_) => {
+                println!("Log files are found at /tmp/<podname>");
+            }
+            Err(e) => {
+                eprintln!("Error {}", e);
+            }
+        },
         Err(e) => {
             eprintln!("Error {}", e);
         }
