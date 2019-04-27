@@ -4,6 +4,8 @@ extern crate clap;
 mod kube;
 mod utils;
 
+
+/// Main Entrypoint into the code
 fn main() {
     match run() {
         Ok(log_config) => match kube::run_logs(&log_config) {
@@ -20,6 +22,7 @@ fn main() {
     }
 }
 
+/// Cli options for wufei
 fn run() -> Result<(kube::LogRecorderConfig), Box<::std::error::Error>> {
     let args = clap_app!(wufei =>
         (version: "1.0")
