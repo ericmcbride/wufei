@@ -2,6 +2,7 @@ use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader};
@@ -59,7 +60,7 @@ impl LogRecorderConfig {
 // Returns a Hashmap of Log FilePath, PodInfo <Returns Hashmap <String Podinfo>
 pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
-    let pod_hashmap = generate_hashmap(pod_vec);
+    let pod_hashmap = generate_hashmap(pod_vec)?;
     run_cmd(pod_hashmap, &log_options);
     Ok(())
 }
@@ -173,15 +174,17 @@ fn get_all_pod_info(
         let byte_string = String::from_utf8_lossy(&output.stderr);
         utils::generate_err(byte_string.to_string())?
     }
-    // if error handle it here
-    // if output.stderr handle
-    let pods = str::from_utf8(&output.stdout).unwrap();
+
+    let pods = str::from_utf8(&output.stdout)?;
     let pods_vec: Vec<&str> = pods.split("\n").collect();
     Ok(utils::str_to_string(pods_vec))
 }
 
-fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo> {
+fn generate_hashmap(
+    pod_vec: Vec<String>,
+) -> Result<HashMap<String, PodInfo>, Box<::std::error::Error>> {
     let mut pods_hashmap = HashMap::new();
+    fs::create_dir_all("/tmp/wufei")?;
     for info in pod_vec {
         // Empty namespaces happen for some reason.  Breaks the indices
         if info == "" {
@@ -195,7 +198,7 @@ fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo> {
 
         // fix the name split and container split
         let string_vec = utils::str_to_string(single_pod_vec);
-        let file_path = "/tmp/".to_owned() + &string_vec[0] + ".txt";
+        let file_path = "/tmp/wufei/".to_owned() + &string_vec[0] + ".txt";
 
         let name = &string_vec[0];
         let containers = &string_vec[1];
@@ -209,5 +212,5 @@ fn generate_hashmap(pod_vec: Vec<String>) -> HashMap<String, PodInfo> {
         );
     }
 
-    pods_hashmap
+    Ok(pods_hashmap)
 }
