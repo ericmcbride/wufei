@@ -4,7 +4,6 @@ extern crate clap;
 mod kube;
 mod utils;
 
-
 /// Main Entrypoint into the code
 fn main() {
     match run() {
