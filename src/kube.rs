@@ -29,7 +29,6 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
-
 /// Config built from cli-args
 #[derive(Debug)]
 pub struct LogRecorderConfig {
@@ -70,7 +69,6 @@ pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error:
     Ok(())
 }
 
-
 ///  Kicks off the concurrent logging
 fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
     let mut children = vec![];
@@ -93,7 +91,6 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
 
     let _: Vec<_> = children.into_iter().map(|thread| thread.join()).collect();
 }
-
 
 /// Each thread runs this function.   It gathers the individual logs at a thread level (pod
 /// level in this case).  It does all the filtering of the cli args, spins off a background
@@ -149,17 +146,20 @@ fn run_individual(
             .lines()
             .filter_map(|line| line.ok())
             .for_each(|line| {
-                println!("{}: {}", &log_prefix, line);
+                let log_msg = format!("{}: {}\n", &log_prefix, line);
+                let _ = std::io::stdout().write(log_msg.as_bytes());
                 out_file.write(&line.as_bytes()).unwrap();
             });
     } else {
         reader
             .lines()
             .filter_map(|line| line.ok())
-            .for_each(|line| println!("{}: {}", &log_prefix, line));
+            .for_each(|line| {
+                let log_msg = format!("{}: {}\n", &log_prefix, line);
+                std::io::stdout().write(log_msg.as_bytes());
+            });
     }
 }
-
 
 /// Gets the container for the app.  Helps with the gathering of logs by using the deployment -
 /// container log strategy instead of the pods.  If we were doing the kubernetes pod logging
@@ -170,7 +170,6 @@ fn get_app_container(containers: &str) -> String {
     let container_vec: Vec<&str> = container.collect();
     container_vec[0].to_string()
 }
-
 
 /// Gather all information about the pods currently deployed in the users kubernetes cluster
 fn get_all_pod_info(
