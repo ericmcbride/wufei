@@ -156,7 +156,7 @@ fn run_individual(
             .filter_map(|line| line.ok())
             .for_each(|line| {
                 let log_msg = format!("{}: {}\n", &log_prefix, line);
-                std::io::stdout().write(log_msg.as_bytes());
+                let _ = std::io::stdout().write(log_msg.as_bytes());
             });
     }
 }
