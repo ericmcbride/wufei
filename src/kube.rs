@@ -36,6 +36,7 @@ pub struct LogRecorderConfig {
     kube_config: String,
     file: bool,
     color: bool,
+    outfile: String,
 }
 
 /// Pod infromation
@@ -51,12 +52,14 @@ impl LogRecorderConfig {
         kube_config: String,
         file: bool,
         color: bool,
+        outfile: String,
     ) -> LogRecorderConfig {
         LogRecorderConfig {
             namespace: namespace,
             kube_config: kube_config,
             file: file,
             color: color,
+            outfile: outfile,
         }
     }
 }
@@ -64,14 +67,18 @@ impl LogRecorderConfig {
 /// Entrypoint for the tailing of the logs
 pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
-    let pod_hashmap = generate_hashmap(pod_vec)?;
-    run_cmd(pod_hashmap, &log_options);
+    let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
+    run_cmd(pod_hashmap, &log_options)?;
     Ok(())
 }
 
 ///  Kicks off the concurrent logging
-fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfig) {
+fn run_cmd(
+    pod_hashmap: HashMap<String, PodInfo>,
+    log_options: &LogRecorderConfig,
+) -> Result<(), Box<::std::error::Error>> {
     let mut children = vec![];
+    fs::create_dir_all(&log_options.outfile)?;
     for (k, v) in pod_hashmap {
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
@@ -90,6 +97,7 @@ fn run_cmd(pod_hashmap: HashMap<String, PodInfo>, log_options: &LogRecorderConfi
     }
 
     let _: Vec<_> = children.into_iter().map(|thread| thread.join()).collect();
+    Ok(())
 }
 
 /// Each thread runs this function.   It gathers the individual logs at a thread level (pod
@@ -197,12 +205,8 @@ fn get_all_pod_info(
 
 /// We generate a hashmap with the key being the file_path (easy access to write files), and the
 /// value being a PodInfo struct
-fn generate_hashmap(
-    pod_vec: Vec<String>,
-) -> Result<HashMap<String, PodInfo>, Box<::std::error::Error>> {
+fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodInfo> {
     let mut pods_hashmap = HashMap::new();
-    // #TODO: Probably should move this out of this function in the future
-    fs::create_dir_all("/tmp/wufei")?;
     for info in pod_vec {
         if info == "" {
             continue;
@@ -213,7 +217,7 @@ fn generate_hashmap(
         let single_pod_vec = pod_info_vec.split_off(0);
 
         let string_vec = utils::str_to_string(single_pod_vec);
-        let file_path = "/tmp/wufei/".to_owned() + &string_vec[0] + ".txt";
+        let file_path = outfile.to_owned() + &string_vec[0] + ".txt";
 
         let name = &string_vec[0];
         let containers = &string_vec[1];
@@ -227,5 +231,5 @@ fn generate_hashmap(
         );
     }
 
-    Ok(pods_hashmap)
+    pods_hashmap
 }
