@@ -148,7 +148,8 @@ fn run_individual(
             .for_each(|line| {
                 let log_msg = format!("{}: {}\n", &log_prefix, line);
                 let _ = std::io::stdout().write(log_msg.as_bytes());
-                out_file.write(&line.as_bytes()).unwrap();
+                let new_line = format!("{}\n", line);
+                out_file.write(&new_line.as_bytes()).unwrap();
             });
     } else {
         reader
