@@ -9,21 +9,30 @@ pub fn str_to_string(input: Vec<&str>) -> Vec<String> {
 
 /// Parse the cli args, and return the kube::LogRecorderConfig
 pub fn set_args(args: &ArgMatches) -> Result<kube::LogRecorderConfig, Box<::std::error::Error>> {
-    let namespace = args.value_of("NAMESPACE").unwrap();
+    let namespace = args.value_of("NAMESPACE").unwrap().to_string();
     let kube_config = if let Some(kube_config) = args.value_of("KUBECONFIG") {
         kube_config
     } else {
         ""
     };
 
+    let mut outfile = "";
     let file = args.is_present("FILE");
-    let color = args.is_present("COLOR");
+    if file {
+        outfile = if let Some(o) = args.value_of("OUTFILE") {
+            o
+        } else {
+            "/tmp/wufei/"
+        }
+    }
 
+    let color = args.is_present("COLOR");
     Ok(kube::LogRecorderConfig::new(
         namespace.to_string(),
         kube_config.to_string(),
         file,
         color,
+        outfile.to_string(),
     ))
 }
 
