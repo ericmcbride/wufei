@@ -22,7 +22,7 @@ fn main() {
 }
 
 /// Cli options for wufei
-fn run() -> Result<(kube::LogRecorderConfig), Box<::std::error::Error>> {
+fn run() -> Result<(kube::LogRecorderConfig), Box<dyn ::std::error::Error>> {
     let args = clap_app!(wufei =>
         (version: "1.0")
         (author: "Eric McBride <ericmcbridedeveloper@gmail.com>")

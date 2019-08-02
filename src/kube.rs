@@ -66,7 +66,7 @@ impl LogRecorderConfig {
 }
 
 /// Entrypoint for the tailing of the logs
-pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error::Error>> {
+pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
     let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
     run_cmd(pod_hashmap, &log_options)?;
@@ -77,7 +77,7 @@ pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error:
 fn run_cmd(
     pod_hashmap: HashMap<String, PodInfo>,
     log_options: &LogRecorderConfig,
-) -> Result<(), Box<::std::error::Error>> {
+) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
     fs::create_dir_all(&log_options.outfile)?;
 
@@ -185,7 +185,7 @@ fn get_app_container(containers: &str) -> String {
 fn get_all_pod_info(
     namespace: &str,
     kube_config: &str,
-) -> Result<Vec<String>, Box<::std::error::Error>> {
+) -> Result<Vec<String>, Box<dyn ::std::error::Error>> {
     let output = Command::new("kubectl")
         .args(&["--kubeconfig", &kube_config])
         .args(&["get", "pods"])
