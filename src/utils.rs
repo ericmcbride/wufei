@@ -2,9 +2,10 @@ use crate::kube;
 use clap::ArgMatches;
 use std::io::{Error, ErrorKind};
 
-
 /// Parse the cli args, and return the kube::LogRecorderConfig
-pub fn set_args(args: &ArgMatches) -> Result<kube::LogRecorderConfig, Box<dyn ::std::error::Error>> {
+pub fn set_args(
+    args: &ArgMatches,
+) -> Result<kube::LogRecorderConfig, Box<dyn ::std::error::Error>> {
     let namespace = args.value_of("NAMESPACE").unwrap().to_string();
     let kube_config = if let Some(kube_config) = args.value_of("KUBECONFIG") {
         kube_config
