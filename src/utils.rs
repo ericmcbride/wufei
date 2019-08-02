@@ -1,9 +1,10 @@
 use crate::kube;
 use clap::ArgMatches;
+use std::collections::VecDeque;
 use std::io::{Error, ErrorKind};
 
 /// Helper func to convert a vector of &str to a vector of Strings
-pub fn str_to_string(input: Vec<&str>) -> Vec<String> {
+pub fn str_to_string(input: VecDeque<&str>) -> Vec<String> {
     input.iter().map(|&x| x.to_string()).collect()
 }
 
