@@ -1,7 +1,7 @@
 use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -44,6 +44,7 @@ pub struct LogRecorderConfig {
 pub struct PodInfo {
     name: String,
     container: String,
+    parent: String,
 }
 
 impl LogRecorderConfig {
@@ -65,7 +66,7 @@ impl LogRecorderConfig {
 }
 
 /// Entrypoint for the tailing of the logs
-pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error::Error>> {
+pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
     let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
     run_cmd(pod_hashmap, &log_options)?;
@@ -76,9 +77,10 @@ pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<::std::error:
 fn run_cmd(
     pod_hashmap: HashMap<String, PodInfo>,
     log_options: &LogRecorderConfig,
-) -> Result<(), Box<::std::error::Error>> {
+) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
     fs::create_dir_all(&log_options.outfile)?;
+
     for (k, v) in pod_hashmap {
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
@@ -116,7 +118,6 @@ fn run_individual(
 ) {
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
-    let deploy_string = "deployment/".to_string() + &container;
 
     if kube_config.len() != 0 {
         kube_cmd.arg("--kubeconfig");
@@ -125,7 +126,7 @@ fn run_individual(
 
     kube_cmd.arg("logs");
     kube_cmd.arg("-f");
-    kube_cmd.arg(&deploy_string);
+    kube_cmd.arg(&v.parent);
     kube_cmd.arg(&container);
     kube_cmd.arg("-n");
     kube_cmd.arg(&namespace);
@@ -139,8 +140,7 @@ fn run_individual(
         .unwrap();
 
     let reader = BufReader::new(output);
-    let mut log_prefix = "[pod] ".to_string();
-    log_prefix = log_prefix + "[" + &v.name + "]";
+    let mut log_prefix = "[".to_owned() + &v.parent + "][" + &container + "]";
 
     if color_on {
         let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
@@ -184,7 +184,7 @@ fn get_app_container(containers: &str) -> String {
 fn get_all_pod_info(
     namespace: &str,
     kube_config: &str,
-) -> Result<Vec<String>, Box<::std::error::Error>> {
+) -> Result<Vec<String>, Box<dyn ::std::error::Error>> {
     let output = Command::new("kubectl")
         .args(&["--kubeconfig", &kube_config])
         .args(&["get", "pods"])
@@ -200,7 +200,7 @@ fn get_all_pod_info(
 
     let pods = str::from_utf8(&output.stdout)?;
     let pods_vec: Vec<&str> = pods.split("\n").collect();
-    Ok(utils::str_to_string(pods_vec))
+    Ok(pods_vec.iter().map(|&x| x.to_string()).collect())
 }
 
 /// We generate a hashmap with the key being the file_path (easy access to write files), and the
@@ -213,22 +213,22 @@ fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodI
         }
 
         let pod_info = info.split_whitespace();
-        let mut pod_info_vec: Vec<&str> = pod_info.collect();
-        let single_pod_vec = pod_info_vec.split_off(0);
+        let mut pod_info_vec: VecDeque<&str> = pod_info.collect();
+        let parent_pod_name = &pod_info_vec.pop_front().unwrap();
 
-        let string_vec = utils::str_to_string(single_pod_vec);
-        let file_path = outfile.to_owned() + &string_vec[0] + ".txt";
-
-        let name = &string_vec[0];
-        let containers = &string_vec[1];
-
-        pods_hashmap.insert(
-            file_path,
-            PodInfo {
-                name: name.to_string(),
-                container: containers.to_string(),
-            },
-        );
+        for pod in pod_info_vec {
+            let file_path = outfile.to_owned() + &parent_pod_name + "-" + &pod + ".txt";
+            let containers = &pod;
+            let name = parent_pod_name.to_string() + "-" + &pod.to_string();
+            pods_hashmap.insert(
+                file_path,
+                PodInfo {
+                    name: name.to_string(),
+                    container: containers.to_string(),
+                    parent: parent_pod_name.to_string(),
+                },
+            );
+        }
     }
 
     pods_hashmap
