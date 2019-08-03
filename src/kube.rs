@@ -140,8 +140,7 @@ fn run_individual(
         .unwrap();
 
     let reader = BufReader::new(output);
-    let mut log_prefix = "[pod] ".to_string();
-    log_prefix = log_prefix + "[" + &v.name + "]";
+    let mut log_prefix = "[".to_owned() + &v.parent + "][" + &container + "]";
 
     if color_on {
         let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
