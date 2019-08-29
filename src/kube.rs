@@ -185,11 +185,19 @@ fn get_all_pod_info(
     namespace: &str,
     kube_config: &str,
 ) -> Result<Vec<String>, Box<dyn ::std::error::Error>> {
-    let output = Command::new("kubectl")
-        .args(&["--kubeconfig", &kube_config])
-        .args(&["get", "pods"])
-        .args(&["-n", &namespace])
-        .args(&["-o", "jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}"])
+    let mut kube_cmd = Command::new("kubectl");
+    if kube_config.len() != 0 {
+        kube_cmd.arg("--kubeconfig");
+        kube_cmd.arg(&kube_config);
+    }
+    kube_cmd.arg("get");
+    kube_cmd.arg("pods");
+    kube_cmd.arg("-n");
+    kube_cmd.arg(&namespace);
+    kube_cmd.arg("-o");
+    kube_cmd.arg("jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}");
+    
+    let output = kube_cmd
         .output()
         .expect("Failed to get kubernetes pods");
 
