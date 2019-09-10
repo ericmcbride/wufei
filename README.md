@@ -14,7 +14,7 @@ As of right now, Wufei is NOT part of cargo.  Its on my todo list.  Right now ju
 
 ## Example Output
 Example output with Linkerd:
-[![asciicast](https://asciinema.org/a/9f8yA7XcC9u9tNRR3gqRAmjuM.svg)](https://asciinema.org/a/9f8yA7XcC9u9tNRR3gqRAmjuM)
+[![asciicast](https://asciinema.org/a/gbET0MFOqXEe0nyL20QEZMMaP.svg)](https://asciinema.org/a/gbET0MFOqXEe0nyL20QEZMMaP)
 
 Out files:
 ![Screen](wufei-out.jpeg?raw=true "Screen")
