@@ -12,6 +12,11 @@ As of right now, Wufei is NOT part of cargo.  Its on my todo list.  Right now ju
 ./target/debug/wufei --namespace=<my-kube-namespace> --kubeconfig=<kube.config> --color
 ```
 
+## Example Output
+Example output with Linkerd:
+
+![Screen](screen.jpeg?raw=true "Screen")
+
 ## CLI Arguments
 ```
 wufei 1.0
@@ -30,10 +35,12 @@ FLAGS:
 OPTIONS:
     -k, --kubeconfig <KUBECONFIG>    Kube config file if not using context
     -n, --namespace <NAMESPACE>      Namespace for logs
+    -o, --outfile <OUTFILE>          Outfile for --file flag
 ```
 
 Wufei requires a namespace.  The Color flog `--color` will display pod names in colors in stdout.  The file flag `--file` will write the logs to /tmp/<podname> based on pod name. If `--kubeconfig` is passed, it will use a absolute path to the config file you want to use.
 Example: 
+
 ```
 cargo run -- --namespace=dev --kubeconfig=/my/full/path/kube.config --color
 ```
