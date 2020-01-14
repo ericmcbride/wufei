@@ -1,3 +1,6 @@
+extern crate futures;
+extern crate tokio_threadpool;
+
 use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
@@ -8,7 +11,11 @@ use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
-use std::thread;
+
+use tokio_threadpool::{blocking, ThreadPool};
+
+use futures::future::{lazy, poll_fn};
+use futures::Future;
 
 /// Static string to hold values we want to use to differentiate between pod logs.  These colors
 /// are mapped from the colored cargo crate
@@ -66,7 +73,7 @@ impl LogRecorderConfig {
 }
 
 /// Entrypoint for the tailing of the logs
-pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::error::Error>> {
+pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
     let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
     run_cmd(pod_hashmap, &log_options)?;
@@ -77,28 +84,39 @@ pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::er
 fn run_cmd(
     pod_hashmap: HashMap<String, PodInfo>,
     log_options: &LogRecorderConfig,
-) -> Result<(), Box<dyn ::std::error::Error>> {
+) -> Result<(), Box<dyn::std::error::Error>> {
     let mut children = vec![];
     fs::create_dir_all(&log_options.outfile)?;
 
+    let pool = ThreadPool::new();
     for (k, v) in pod_hashmap {
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
         let file = log_options.file.clone();
         let color = log_options.color.clone();
-        children.push(thread::spawn(move || {
-            run_individual(
-                k.to_string(),
-                &v,
-                namespace.to_owned(),
-                kube_config.to_owned(),
-                file.to_owned(),
-                color.to_owned(),
-            )
-        }));
+
+        // In this chunk of code we are using a tokio threadpool.  The threadpool runs a task,
+        // which can easily be compared to a green thread or a GO routine.  We do not have a
+        // complicated requirement here, so we use just use futures built in poll_fn which is a
+        // stream wrapper function that returns a poll.  This satisifies the pool.spawn function
+        children.push(pool.spawn(lazy(move || {
+            poll_fn(move || {
+                blocking(|| {
+                    run_individual(
+                        k.to_string(),
+                        &v,
+                        namespace.to_owned(),
+                        kube_config.to_owned(),
+                        file.to_owned(),
+                        color.to_owned(),
+                    )
+                })
+                .map_err(|_| panic!("the threadpool shutdown"))
+            })
+        })));
     }
 
-    let _: Vec<_> = children.into_iter().map(|thread| thread.join()).collect();
+    pool.shutdown_on_idle().wait().unwrap();
     Ok(())
 }
 
@@ -154,8 +172,6 @@ fn run_individual(
             .lines()
             .filter_map(|line| line.ok())
             .for_each(|line| {
-                let log_msg = format!("{}: {}\n", &log_prefix, line);
-                let _ = std::io::stdout().write(log_msg.as_bytes());
                 let new_line = format!("{}\n", line);
                 out_file.write(&new_line.as_bytes()).unwrap();
             });
@@ -184,7 +200,7 @@ fn get_app_container(containers: &str) -> String {
 fn get_all_pod_info(
     namespace: &str,
     kube_config: &str,
-) -> Result<Vec<String>, Box<dyn ::std::error::Error>> {
+) -> Result<Vec<String>, Box<dyn::std::error::Error>> {
     let mut kube_cmd = Command::new("kubectl");
     if kube_config.len() != 0 {
         kube_cmd.arg("--kubeconfig");
@@ -196,10 +212,8 @@ fn get_all_pod_info(
     kube_cmd.arg(&namespace);
     kube_cmd.arg("-o");
     kube_cmd.arg("jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}");
-    
-    let output = kube_cmd
-        .output()
-        .expect("Failed to get kubernetes pods");
+
+    let output = kube_cmd.output().expect("Failed to get kubernetes pods");
 
     if output.stderr.len() != 0 {
         let byte_string = String::from_utf8_lossy(&output.stderr);
