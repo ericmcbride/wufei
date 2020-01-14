@@ -233,21 +233,12 @@ fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodI
         if info == "" {
             continue;
         }
-        if info.starts_with("ml-") {
-            continue;
-        }
 
-        if info.starts_with("tfserve") {
-            continue;
-        }
         let pod_info = info.split_whitespace();
         let mut pod_info_vec: VecDeque<&str> = pod_info.collect();
         let parent_pod_name = &pod_info_vec.pop_front().unwrap();
 
         for pod in pod_info_vec {
-            if pod.starts_with("istio-init") {
-                continue;
-            }
             let file_path = outfile.to_owned() + &parent_pod_name + "-" + &pod + ".txt";
             let containers = &pod;
             let name = parent_pod_name.to_string() + "-" + &pod.to_string();
