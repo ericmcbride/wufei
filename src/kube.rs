@@ -97,7 +97,7 @@ fn run_cmd(
 
         // In this chunk of code we are using a tokio threadpool.  The threadpool runs a task,
         // which can easily be compared to a green thread or a GO routine.  We do not have a
-        // complicated requirement here, so we use just use tokios built in poll_fn which is a
+        // complicated requirement here, so we use just use futures built in poll_fn which is a
         // stream wrapper function that returns a poll.  This satisifies the pool.spawn function
         children.push(pool.spawn(lazy(move || {
             poll_fn(move || {
