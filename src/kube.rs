@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
 
+use structopt::StructOpt;
 use tokio_threadpool::{blocking, ThreadPool};
 
 use futures::future::{lazy, poll_fn};
@@ -36,14 +37,23 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
-/// Config built from cli-args
-#[derive(Debug)]
+#[derive(StructOpt, Debug)]
+#[structopt(name = "basic")]
 pub struct LogRecorderConfig {
+    #[structopt(short, long, default_value = "kube-system")]
     namespace: String,
+
+    #[structopt(short, long = "kubeconfig", default_value = "")]
     kube_config: String,
-    file: bool,
-    color: bool,
+
+    #[structopt(short, long, default_value = "/tmp/wufei/")]
     outfile: String,
+
+    #[structopt(short, long)]
+    file: bool,
+
+    #[structopt(long)]
+    color: bool,
 }
 
 /// Pod infromation
@@ -54,22 +64,10 @@ pub struct PodInfo {
     parent: String,
 }
 
-impl LogRecorderConfig {
-    pub fn new(
-        namespace: String,
-        kube_config: String,
-        file: bool,
-        color: bool,
-        outfile: String,
-    ) -> LogRecorderConfig {
-        LogRecorderConfig {
-            namespace: namespace,
-            kube_config: kube_config,
-            file: file,
-            color: color,
-            outfile: outfile,
-        }
-    }
+/// Cli options for wufei
+pub fn run() -> Result<(LogRecorderConfig), Box<dyn::std::error::Error>> {
+    let opt = LogRecorderConfig::from_args();
+    Ok(opt)
 }
 
 /// Entrypoint for the tailing of the logs
