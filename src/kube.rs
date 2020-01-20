@@ -1,6 +1,3 @@
-extern crate futures;
-extern crate tokio_threadpool;
-
 use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
@@ -12,17 +9,16 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
 
-use std::{thread, time};
+use std::thread;
 use structopt::StructOpt;
 use tokio_threadpool::{blocking, ThreadPool};
 
 use futures::future::{lazy, poll_fn};
 use futures::Future;
 
-
 use kube_async::{
     api::v1Event,
-    api::{Api, Informer, ListParams, WatchEvent},
+    api::{Api, Informer, WatchEvent},
     client::APIClient,
     config,
 };
@@ -68,7 +64,7 @@ pub struct LogRecorderConfig {
 }
 
 /// Pod infromation
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct PodInfo {
     name: String,
     container: String,
@@ -124,7 +120,6 @@ fn run_cmd(
             })
         })));
     }
-
     pool.shutdown_on_idle().wait().unwrap();
     Ok(())
 }
@@ -143,6 +138,7 @@ fn run_individual(
     file: bool,
     color_on: bool,
 ) {
+    println!("Kicking off individual pod for {:?}", v.name);
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
 
@@ -195,6 +191,28 @@ fn run_individual(
     }
 }
 
+
+async fn run_individual_async(
+    k: String,
+    v: PodInfo,
+    namespace: String,
+    kube_config: String,
+    file: bool,
+    color_on: bool,
+) {
+    thread::spawn(move || {
+        println!("Informer found new pod {:?}, starting to tail the logs", v.name);
+        run_individual(
+            k,
+            &v,
+            namespace,
+            kube_config,
+            file,
+            color_on
+        )
+    });
+
+}
 /// Gets the container for the app.  Helps with the gathering of logs by using the deployment -
 /// container log strategy instead of the pods.  If we were doing the kubernetes pod logging
 /// strategy, we could run into issues if someone was using linkerd or istio, since envoy
@@ -291,15 +309,27 @@ async fn handle_events(wufei_config: &LogRecorderConfig, ev:WatchEvent<v1Event>)
             println!("New Event: {}, {}", o.type_, o.message);
             if o.message.contains("Created pod") {
                 let async_config = wufei_config.clone();
-                tokio::task::spawn(async move { 
                     println!("Pod created, pulling pod into threadpool message: {}", o.message);
                     let pods = Api::v1Pod(client.clone()).within(&async_config.namespace);
                     let pod_message: Vec<&str> = o.message.split(":").collect();
-                    let pod_str = pod_message[1];
-                    let pod = pods.get(&pod_str.trim()).await.unwrap();
-                    println!("Pod is {:?}", pod.metadata.name);
-                    //call run_indivudal after making a PodInfo type 
-                });
+                    let pod_str = pod_message[1].trim();
+                    let pod = pods.get(&pod_str).await.unwrap();
+                    let container_name = pod.spec.containers[0].name.clone();
+                    let file_name = wufei_config.outfile.clone() + &pod.metadata.name.clone() + "-" + pod_str + ".txt";
+                    let pod_info =  PodInfo {
+                        name: pod.metadata.name,
+                        container: container_name,
+                        parent: pod_str.to_string(),
+                    };
+
+                    run_individual_async(
+                        file_name,
+                        pod_info,
+                        async_config.namespace,
+                        async_config.kube_config,
+                        async_config.file,
+                        async_config.color,
+                    ).await;
             }
         }
         WatchEvent::Modified(_) => {}
