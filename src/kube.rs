@@ -12,11 +12,22 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
 
+use std::{thread, time};
 use structopt::StructOpt;
 use tokio_threadpool::{blocking, ThreadPool};
 
 use futures::future::{lazy, poll_fn};
 use futures::Future;
+
+
+use kube_async::{
+    api::v1Event,
+    api::{Api, Informer, ListParams, WatchEvent},
+    client::APIClient,
+    config,
+};
+
+use new_futures::stream::StreamExt;
 
 /// Static string to hold values we want to use to differentiate between pod logs.  These colors
 /// are mapped from the colored cargo crate
@@ -37,11 +48,11 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
-#[derive(StructOpt, Debug)]
+#[derive(Clone, StructOpt, Debug)]
 #[structopt(name = "basic")]
 pub struct LogRecorderConfig {
     #[structopt(short, long, default_value = "kube-system")]
-    namespace: String,
+    pub namespace: String,
 
     #[structopt(short, long = "kubeconfig", default_value = "")]
     kube_config: String,
@@ -65,7 +76,7 @@ pub struct PodInfo {
 }
 
 /// Cli options for wufei
-pub fn run() -> Result<(LogRecorderConfig), Box<dyn::std::error::Error>> {
+pub fn generate_config() -> Result<(LogRecorderConfig), Box<dyn::std::error::Error>> {
     let opt = LogRecorderConfig::from_args();
     Ok(opt)
 }
@@ -252,4 +263,56 @@ fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodI
     }
 
     pods_hashmap
+}
+
+pub async fn pod_informer(wufei_config: &LogRecorderConfig) -> Result<(), Box<dyn::std::error::Error>> {
+    // #TODO: Figure out how to get this to work with a file path
+    let config = config::load_kube_config().await.unwrap();
+    let client = APIClient::new(config);
+
+    let events = Api::v1Event(client);
+    let ei = Informer::new(events).init().await.unwrap();
+    loop {
+        let mut events = ei.poll().await.unwrap().boxed();
+
+        while let Some(event) = events.next().await {
+            let event = event.unwrap();
+            handle_events(&wufei_config, event).await?;
+        }
+    }
+}
+// This function lets the app handle an event from kube
+async fn handle_events(wufei_config: &LogRecorderConfig, ev:WatchEvent<v1Event>) -> Result<(), Box<dyn::std::error::Error>> {
+    let config = config::load_kube_config().await.unwrap();
+    let client = APIClient::new(config);
+    println!("Waiting on events for namespace: {:?}", wufei_config.namespace);
+    match ev {
+        WatchEvent::Added(o) => {
+            println!("New Event: {}, {}", o.type_, o.message);
+            if o.message.contains("Created pod") {
+                // spin off a task
+                async {
+
+                //thread::sleep(time_sleep);
+
+                println!("Pod created, pulling pod into threadpool message: {}", o.message);
+                let pods = Api::v1Pod(client.clone()).within(&wufei_config.namespace);
+                let pod_message: Vec<&str> = o.message.split(":").collect();
+                let pod_str = pod_message[1];
+                let pod = pods.get(&pod_str.trim()).await.unwrap();
+                println!("THE POD IS {:?}", pod.spec);
+                // Need to make a podinfo type thats
+                // container
+                // name
+                // parent, and pass in kubeconfig, filepath, file, and coloron
+                let name_vec: Vec<&str> = pod.metadata.name.split(".").collect();
+                let parent = name_vec;
+                }.await;
+            }
+        }
+        WatchEvent::Modified(_) => {}
+        WatchEvent::Deleted(_) => {}
+        WatchEvent::Error(_) => {}
+    }
+    Ok(())
 }
