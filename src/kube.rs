@@ -72,13 +72,13 @@ pub struct PodInfo {
 }
 
 /// Cli options for wufei
-pub fn generate_config() -> Result<(LogRecorderConfig), Box<dyn::std::error::Error>> {
+pub fn generate_config() -> Result<(LogRecorderConfig), Box<dyn ::std::error::Error>> {
     let opt = LogRecorderConfig::from_args();
     Ok(opt)
 }
 
 /// Entrypoint for the tailing of the logs
-pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn::std::error::Error>> {
+pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
     let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
     run_cmd(pod_hashmap, &log_options)?;
@@ -89,7 +89,7 @@ pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn::std::err
 fn run_cmd(
     pod_hashmap: HashMap<String, PodInfo>,
     log_options: &LogRecorderConfig,
-) -> Result<(), Box<dyn::std::error::Error>> {
+) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
     fs::create_dir_all(&log_options.outfile)?;
 
@@ -191,7 +191,6 @@ fn run_individual(
     }
 }
 
-
 async fn run_individual_async(
     k: String,
     v: PodInfo,
@@ -201,17 +200,12 @@ async fn run_individual_async(
     color_on: bool,
 ) {
     thread::spawn(move || {
-        println!("Informer found new pod {:?}, starting to tail the logs", v.name);
-        run_individual(
-            k,
-            &v,
-            namespace,
-            kube_config,
-            file,
-            color_on
-        )
+        println!(
+            "Informer found new pod {:?}, starting to tail the logs",
+            v.name
+        );
+        run_individual(k, &v, namespace, kube_config, file, color_on)
     });
-
 }
 /// Gets the container for the app.  Helps with the gathering of logs by using the deployment -
 /// container log strategy instead of the pods.  If we were doing the kubernetes pod logging
@@ -227,7 +221,7 @@ fn get_app_container(containers: &str) -> String {
 fn get_all_pod_info(
     namespace: &str,
     kube_config: &str,
-) -> Result<Vec<String>, Box<dyn::std::error::Error>> {
+) -> Result<Vec<String>, Box<dyn ::std::error::Error>> {
     let mut kube_cmd = Command::new("kubectl");
     if kube_config.len() != 0 {
         kube_cmd.arg("--kubeconfig");
@@ -283,7 +277,9 @@ fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodI
     pods_hashmap
 }
 
-pub async fn pod_informer(wufei_config: &LogRecorderConfig) -> Result<(), Box<dyn::std::error::Error>> {
+pub async fn pod_informer(
+    wufei_config: &LogRecorderConfig,
+) -> Result<(), Box<dyn ::std::error::Error>> {
     // #TODO: Figure out how to get this to work with a file path
     let config = config::load_kube_config().await.unwrap();
     let client = APIClient::new(config);
@@ -300,36 +296,51 @@ pub async fn pod_informer(wufei_config: &LogRecorderConfig) -> Result<(), Box<dy
     }
 }
 // This function lets the app handle an event from kube
-async fn handle_events(wufei_config: &LogRecorderConfig, ev:WatchEvent<v1Event>) -> Result<(), Box<dyn::std::error::Error>> {
+async fn handle_events(
+    wufei_config: &LogRecorderConfig,
+    ev: WatchEvent<v1Event>,
+) -> Result<(), Box<dyn ::std::error::Error>> {
     let config = config::load_kube_config().await.unwrap();
     let client = APIClient::new(config);
-    println!("Waiting on events for namespace: {:?}", wufei_config.namespace);
+    println!(
+        "Waiting on events for namespace: {:?}",
+        wufei_config.namespace
+    );
     match ev {
         WatchEvent::Added(o) => {
             println!("New Event: {}, {}", o.type_, o.message);
             if o.message.contains("Created pod") {
                 let async_config = wufei_config.clone();
-                    println!("Pod created, pulling pod into threadpool message: {}", o.message);
-                    let pods = Api::v1Pod(client.clone()).within(&async_config.namespace);
-                    let pod_message: Vec<&str> = o.message.split(":").collect();
-                    let pod_str = pod_message[1].trim();
-                    let pod = pods.get(&pod_str).await.unwrap();
-                    let container_name = pod.spec.containers[0].name.clone();
-                    let file_name = wufei_config.outfile.clone() + &pod.metadata.name.clone() + "-" + pod_str + ".txt";
-                    let pod_info =  PodInfo {
-                        name: pod.metadata.name,
-                        container: container_name,
-                        parent: pod_str.to_string(),
-                    };
+                println!(
+                    "Pod created, pulling pod into threadpool message: {}",
+                    o.message
+                );
+                let pods = Api::v1Pod(client.clone()).within(&async_config.namespace);
+                let pod_message: Vec<&str> = o.message.split(":").collect();
+                let pod_str = pod_message[1].trim();
+                let pod = pods.get(&pod_str).await.unwrap();
+                let container_name = pod.spec.containers[0].name.clone();
+                // get rid of pod_str should be container name
+                let file_name = wufei_config.outfile.clone()
+                    + &pod.metadata.name.clone()
+                    + "-"
+                    + pod_str
+                    + ".txt";
+                let pod_info = PodInfo {
+                    name: pod.metadata.name,
+                    container: container_name,
+                    parent: pod_str.to_string(),
+                };
 
-                    run_individual_async(
-                        file_name,
-                        pod_info,
-                        async_config.namespace,
-                        async_config.kube_config,
-                        async_config.file,
-                        async_config.color,
-                    ).await;
+                run_individual_async(
+                    file_name,
+                    pod_info,
+                    async_config.namespace,
+                    async_config.kube_config,
+                    async_config.file,
+                    async_config.color,
+                )
+                .await;
             }
         }
         WatchEvent::Modified(_) => {}
