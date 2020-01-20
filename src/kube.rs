@@ -290,19 +290,16 @@ async fn handle_events(wufei_config: &LogRecorderConfig, ev:WatchEvent<v1Event>)
         WatchEvent::Added(o) => {
             println!("New Event: {}, {}", o.type_, o.message);
             if o.message.contains("Created pod") {
-                // spin off a task
-                async {
+                let async_config = wufei_config.clone();
+                tokio::task::spawn(async move { 
                     println!("Pod created, pulling pod into threadpool message: {}", o.message);
-                    let pods = Api::v1Pod(client.clone()).within(&wufei_config.namespace);
+                    let pods = Api::v1Pod(client.clone()).within(&async_config.namespace);
                     let pod_message: Vec<&str> = o.message.split(":").collect();
                     let pod_str = pod_message[1];
                     let pod = pods.get(&pod_str.trim()).await.unwrap();
-                    println!("THE POD IS {:?}", pod.spec);
-                    // Need to make a podinfo type thats
-                    // container
-                    // name
-                    // parent, and pass in kubeconfig, filepath, file, and coloron
-                }.await;
+                    println!("Pod is {:?}", pod.metadata.name);
+                    //call run_indivudal after making a PodInfo type 
+                });
             }
         }
         WatchEvent::Modified(_) => {}
