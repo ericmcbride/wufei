@@ -1,5 +1,4 @@
 mod kube;
-mod utils;
 
 /// Main Entrypoint into the code
 #[tokio::main]
@@ -14,6 +13,6 @@ async fn main() -> Result<(), Box<dyn ::std::error::Error>> {
             kube::pod_informer(&async_config).await.unwrap();
         });
     }
-    let _ = kube::run_logs(&config)?;
+    kube::run_logs(&config).await.unwrap();
     Ok(())
 }
