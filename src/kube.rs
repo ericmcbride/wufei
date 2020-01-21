@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
 
-use std::thread;
+use std::{thread, time};
 use structopt::StructOpt;
 use tokio_threadpool::{blocking, ThreadPool};
 
@@ -16,7 +16,7 @@ use futures::Future;
 
 use kube_async::{
     api::v1Event,
-    api::{Api, ListParams, Informer, WatchEvent},
+    api::{Api, Informer, ListParams, WatchEvent},
     client::APIClient,
     config,
 };
@@ -105,23 +105,21 @@ fn run_cmd(
         fs::create_dir_all(&log_options.outfile)?;
     }
 
+    // visit once cell to make this a singleton https://github.com/matklad/once_cell
     let pool = ThreadPool::new();
+    
     println!("Beginning to tail logs, press <ctrl> + c to kill wufei...");
-    for pod in pods  {
+    for pod in pods {
         let log_options = log_options.clone();
+
         // In this chunk of code we are using a tokio threadpool.  The threadpool runs a task,
         // which can easily be compared to a green thread or a GO routine.  We do not have a
         // complicated requirement here, so we use just use futures built in poll_fn which is a
         // stream wrapper function that returns a poll.  This satisifies the pool.spawn function
         children.push(pool.spawn(lazy(move || {
             poll_fn(move || {
-                blocking(|| {
-                    run_individual(
-                        &pod,
-                        &log_options,
-                    )
-                })
-                .map_err(|_| panic!("the threadpool shutdown"))
+                blocking(|| run_individual(&pod, &log_options))
+                    .map_err(|_| panic!("the threadpool shutdown"))
             })
         })));
     }
@@ -135,10 +133,7 @@ fn run_cmd(
 /// out to stdout in a non-blocking fashion.  If an error happens, instead of handling using
 /// channels, we are just writing the stderr into the output file if the flag exists.  If not the
 /// thread (or pod) buffer will not be outputted to stdout
-fn run_individual(
-    pod_info: &PodInfo,
-    log_options: &LogRecorderConfig,
-) {
+fn run_individual(pod_info: &PodInfo, log_options: &LogRecorderConfig) {
     let mut kube_cmd = Command::new("kubectl");
     if log_options.kube_config.len() != 0 {
         kube_cmd.arg("--kubeconfig");
@@ -189,14 +184,13 @@ fn run_individual(
     }
 }
 
-async fn run_individual_async(
-    pod_info: PodInfo,
-    log_options: LogRecorderConfig,
-) {
+/// A thin wrapper around the run_individual function. This allows adding of new pods to the
+/// threadpool.  Hopefully there will be a cleaner way to do this in the future.  Feels like a hack right now
+async fn run_individual_async(pod_info: PodInfo, log_options: LogRecorderConfig) {
     thread::spawn(move || {
         println!(
-            "Informer found new pod {:?}, starting to tail the logs",
-            pod_info.name
+            "Informer found new pod: {:?} with container: {:?}, starting to tail the logs",
+            pod_info.name, pod_info.container,
         );
         run_individual(&pod_info, &log_options)
     });
@@ -207,7 +201,7 @@ async fn get_all_pod_info(
     namespace: &str,
     outfile: &str,
 ) -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Error>> {
-    println!("Getting all pods in namespace...");
+    println!("Getting all pods in namespace {}...", namespace);
     let client = get_kube_client().await;
     let pods = Api::v1Pod(client.clone()).within(namespace);
     let mut pod_info_vec: Vec<PodInfo> = vec![];
@@ -216,11 +210,7 @@ async fn get_all_pod_info(
         for c in p.spec.containers {
             let container = c.name;
             let pod_name = p.metadata.name.to_string();
-            let file_name = outfile.to_string()
-                    + &pod_name
-                    + "-"
-                    + &container
-                    + ".txt";
+            let file_name = outfile.to_string() + &pod_name + "-" + &container + ".txt";
 
             let pod_info = PodInfo {
                 name: pod_name.clone(),
@@ -235,6 +225,7 @@ async fn get_all_pod_info(
     Ok(pod_info_vec)
 }
 
+/// An informer that will update the main thread pool if a new pod is spun up.
 pub async fn pod_informer(
     wufei_config: &LogRecorderConfig,
 ) -> Result<(), Box<dyn ::std::error::Error>> {
@@ -250,7 +241,11 @@ pub async fn pod_informer(
         }
     }
 }
-// This function lets the app handle an event from kube
+
+/// Watches for an event.  If there is a new added event, we check if its a created pod type.  If
+/// it is we see if the pod exists in the clusters namespace, and if it does exist, we make sure
+/// the pod is healthy.  If the pod is healthy, we had it to the threadpool and begin tailing the
+/// containers in the pod
 async fn handle_events(
     wufei_config: &LogRecorderConfig,
     ev: WatchEvent<v1Event>,
@@ -259,16 +254,24 @@ async fn handle_events(
         WatchEvent::Added(o) => {
             if o.message.contains("Created pod") {
                 let async_config = wufei_config.clone();
-                println!(
-                    "Pod created, pulling pod into threadpool message: {}",
-                    o.message
-                );
+                println!("{}, checking to see if this event effects wufei", o.message);
+
+                let pod_message: Vec<&str> = o.message.split(":").collect();
+                let pod_str = pod_message[1].trim();
+
                 let pods = get_all_pod_info(&async_config.namespace, &async_config.outfile).await?;
                 for p in pods {
-                    run_individual_async(
-                        p,
-                        async_config.clone(),
-                    ).await;
+                    if pod_str == p.name {
+                        loop {
+                            let healthy = check_status(&async_config.namespace, &p.name).await?;
+                            if healthy {
+                                break;
+                            }
+                            let five_secs = time::Duration::from_secs(5);
+                            thread::sleep(five_secs);
+                        }
+                        run_individual_async(p, async_config.clone()).await;
+                    }
                 }
             }
         }
@@ -277,6 +280,20 @@ async fn handle_events(
         WatchEvent::Error(_) => {}
     }
     Ok(())
+}
+
+/// Checks to see if the newly created pod is healthy, if the pod is healthy, then it is ready to
+/// be added to the logging threadpool
+async fn check_status(conf: &str, pod: &str) -> Result<bool, Box<dyn ::std::error::Error>> {
+    let client = get_kube_client().await;
+    let pods = Api::v1Pod(client).within(conf);
+    let pod_obj = pods.get(pod).await?;
+    let status = pod_obj.status.unwrap().phase.unwrap();
+
+    if status != "Running" {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 // do something for this.  lazy_static doesnt support await syntax, and singleton maybe out of

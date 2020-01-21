@@ -1,5 +1,5 @@
 # WUFEI
-Wufei is a Rust CLI Tool for the aggregation of Kubernetes logs. This tool will write kubernetes logs for each pod to a file and also has the ability to log new pods that are spun up in the namespace as well. There is an informer written to let Wufei know when new pods spin up!
+Wufei is a Rust CLI Tool for the aggregation of Kubernetes logs. This tool will write kubernetes logs for each pod down to a container level to a file or to stdout depending on the developers needs and also has the ability to log new pods that are spun up in the namespace as well. There is an informer written to let Wufei know when new pods spin up!
 
 Heavily inspired by https://github.com/johanhaleby/kubetail Kubetail.
 
@@ -14,18 +14,6 @@ cargo run -- --namespace=<my-kube-namespace> --kubeconfig=<kube.config> --color
 
 ## Example Output
 Video coming soon
-
-## CPU USAGE WARNING:
-Depending on what cloud provider you are using, and how your kubernetes configs / contexts are
-set up, you may have to generate a new token on each request.  That may not sound like a huge
-deal, but for example, AWS has a python script that calls out and gets a token everytime
-kubectl is called.  This spins up a new pyenv environment everytime.  If you see this happen,
-you can htop and see all the pyenvs spinning up.  You may need to change the strategy to
-generate one token upfront, and use that throughout.  It may not be the most secure method of
-doing this, and you may need to set some sort of RBAC role, because this issue will happen,
-especially the more pods you have in your cluster...
-
-https://kubernetes.io/docs/reference/access-authn-authz/authentication/
 
 ## CLI Arguments
 ```
@@ -49,19 +37,37 @@ OPTIONS:
     -o, --outfile <outfile>           Outfile of where the logs are being recorded [default: /tmp/wufei/]
 ```
 
-Wufei requires a namespace.  The Color flog `--color` will display pod names in colors in stdout.  The file flag `--file` will write the logs to /tmp/wufei/<podname> based on pod name. If `--kubeconfig` is passed, it will use a absolute path to the config file you want to use.
-Example: 
+Wufei requires a namespace.  
+- The color flog `--color` will display pod names in colors in stdout.  
+- The file flag `--file` will write the logs to /tmp/wufei/<podname> based on pod name.
+- The update flag `--update` will spin up an informer that will listen for new pods to spin up
+
+- The namespace option `--namespace` is the namespace the developer wants to use to tail logs from
+- The outfile option `--outfile` is used when the file flag is used, to change the location of
+  where the files are used
+
+Example:
 
 ```
 cargo run -- --namespace=dev --kubeconfig=/my/full/path/kube.config --color
 ```
 If the `--kubeconfig` flag is not passed, then it was use you're current
-kube context 
+kube context
 
+## CPU USAGE WARNING:
+Depending on what cloud provider you are using, and how your kubernetes configs / contexts are
+set up, you may have to generate a new token on each request.  That may not sound like a huge
+deal, but for example, AWS has a python script that calls out and gets a token everytime
+kubectl is called.  This spins up a new pyenv environment everytime.  If you see this happen,
+you can htop and see all the pyenvs spinning up.  You may need to change the strategy to
+generate one token upfront, and use that throughout.  It may not be the most secure method of
+doing this, and you may need to set some sort of RBAC role, because this issue will happen,
+especially the more pods you have in your cluster...
+
+https://kubernetes.io/docs/reference/access-authn-authz/authentication/
 
 ## Coming Soon
-Complete rewrite.  Going to use async, instead of a tokio threadpool.  I will have an option to
-pass in -thread or -async for personal benchmarking reasons for a bit.  Then I will remove it.
+See if theres a way to solve the token generation CPU issue for AWS or any other cloud provider
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
