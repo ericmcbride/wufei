@@ -22,7 +22,6 @@ use kube_async::{
     client::APIClient,
     config,
 };
-
 use new_futures::stream::StreamExt;
 
 /// Static string to hold values we want to use to differentiate between pod logs.  These colors
@@ -44,27 +43,46 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
-#[derive(Clone, StructOpt, Debug)]
-#[structopt(name = "basic")]
+#[derive(Clone, Debug, StructOpt)]
+#[structopt(
+    name = "Wufei",
+    about = "Tail ALL your kubernetes logs at once, or record them to files",
+    author = "Eric McBride <ericmcbridedeveloper@gmail.com> github.com/ericmcbride"
+)]
 pub struct LogRecorderConfig {
+    /// Namespace for logs
     #[structopt(short, long, default_value = "kube-system")]
     pub namespace: String,
 
+    /// The kube config for accessing your cluster.
     #[structopt(short, long = "kubeconfig", default_value = "")]
     kube_config: String,
 
-    #[structopt(short, long, default_value = "/tmp/wufei/")]
-    outfile: String,
-
+    /// Record the logs to a file. Note: Logs will not appear in stdout.
     #[structopt(short, long)]
     file: bool,
 
+    #[structopt(subcommand)]
+    sub_file_command: SubFileCommand,
+
+    /// Pods for the logs will appear in color in your terminal
     #[structopt(long)]
     color: bool,
+
+    /// Runs an informer, that will add new pods to the tailed logs
+    #[structopt(long)]
+    pub update: bool,
+}
+
+#[derive(Clone, Debug, StructOpt)]
+pub struct SubFileCommand {
+    /// Outfile of where the logs are being recorded
+    #[structopt(short, long, default_value = "/tmp/wufei/")]
+    outfile: String,
 }
 
 /// Pod infromation
-#[derive(Debug, Default, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct PodInfo {
     name: String,
     container: String,
@@ -80,7 +98,7 @@ pub fn generate_config() -> Result<(LogRecorderConfig), Box<dyn ::std::error::Er
 /// Entrypoint for the tailing of the logs
 pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn ::std::error::Error>> {
     let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
-    let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
+    let pod_hashmap = generate_hashmap(pod_vec, &log_options.sub_file_command.outfile);
     run_cmd(pod_hashmap, &log_options)?;
     Ok(())
 }
@@ -91,9 +109,10 @@ fn run_cmd(
     log_options: &LogRecorderConfig,
 ) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
-    fs::create_dir_all(&log_options.outfile)?;
+    fs::create_dir_all(&log_options.sub_file_command.outfile)?;
 
     let pool = ThreadPool::new();
+    println!("Beginning to tail logs, press <ctrl> + c to kill wufei...");
     for (k, v) in pod_hashmap {
         let namespace = log_options.namespace.clone();
         let kube_config = log_options.kube_config.clone();
@@ -138,7 +157,6 @@ fn run_individual(
     file: bool,
     color_on: bool,
 ) {
-    println!("Kicking off individual pod for {:?}", v.name);
     let mut kube_cmd = Command::new("kubectl");
     let container = get_app_container(&v.container);
 
@@ -234,6 +252,7 @@ fn get_all_pod_info(
     kube_cmd.arg("-o");
     kube_cmd.arg("jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}");
 
+    println!("Getting all pods in namespace...");
     let output = kube_cmd.output().expect("Failed to get kubernetes pods");
 
     if output.stderr.len() != 0 {
@@ -280,10 +299,7 @@ fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodI
 pub async fn pod_informer(
     wufei_config: &LogRecorderConfig,
 ) -> Result<(), Box<dyn ::std::error::Error>> {
-    // #TODO: Figure out how to get this to work with a file path
-    let config = config::load_kube_config().await.unwrap();
-    let client = APIClient::new(config);
-
+    let client = get_kube_client().await;
     let events = Api::v1Event(client);
     let ei = Informer::new(events).init().await.unwrap();
     loop {
@@ -300,15 +316,9 @@ async fn handle_events(
     wufei_config: &LogRecorderConfig,
     ev: WatchEvent<v1Event>,
 ) -> Result<(), Box<dyn ::std::error::Error>> {
-    let config = config::load_kube_config().await.unwrap();
-    let client = APIClient::new(config);
-    println!(
-        "Waiting on events for namespace: {:?}",
-        wufei_config.namespace
-    );
+    let client = get_kube_client().await;
     match ev {
         WatchEvent::Added(o) => {
-            println!("New Event: {}, {}", o.type_, o.message);
             if o.message.contains("Created pod") {
                 let async_config = wufei_config.clone();
                 println!(
@@ -321,7 +331,7 @@ async fn handle_events(
                 let pod = pods.get(&pod_str).await.unwrap();
                 let container_name = pod.spec.containers[0].name.clone();
                 // get rid of pod_str should be container name
-                let file_name = wufei_config.outfile.clone()
+                let file_name = wufei_config.sub_file_command.outfile.clone()
                     + &pod.metadata.name.clone()
                     + "-"
                     + pod_str
@@ -348,4 +358,11 @@ async fn handle_events(
         WatchEvent::Error(_) => {}
     }
     Ok(())
+}
+
+// do something for this.  lazy_static doesnt support await syntax, and singleton maybe out of
+// scope.  Some overhead to this.
+async fn get_kube_client() -> APIClient {
+    let config = config::load_kube_config().await.unwrap();
+    APIClient::new(config)
 }
