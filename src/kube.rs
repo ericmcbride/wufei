@@ -240,12 +240,12 @@ pub async fn pod_informer(
 ) -> Result<(), Box<dyn ::std::error::Error>> {
     let client = get_kube_client().await;
     let events = Api::v1Event(client);
-    let ei = Informer::new(events).init().await.unwrap();
+    let ei = Informer::new(events).init().await?;
     loop {
         let mut events = ei.poll().await.unwrap().boxed();
 
         while let Some(event) = events.next().await {
-            let event = event.unwrap();
+            let event = event?;
             handle_events(&wufei_config, event).await?;
         }
     }
