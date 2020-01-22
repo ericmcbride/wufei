@@ -41,6 +41,9 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
+pub static CONFIG: OnceCell<LogRecorderConfig> = OnceCell::new();
+pub static KUBE_CLIENT: OnceCell<KubeClient> = OnceCell::new();
+
 #[derive(Clone, Debug, StructOpt)]
 #[structopt(
     name = "Wufei",
@@ -73,11 +76,19 @@ pub struct LogRecorderConfig {
     pub update: bool,
 }
 
-pub static CONFIG: OnceCell<LogRecorderConfig> = OnceCell::new();
-
 impl LogRecorderConfig {
     pub fn global() -> &'static LogRecorderConfig {
         CONFIG.get().expect("Config is not initialized")
+    }
+}
+
+pub struct KubeClient {
+    client: APIClient,
+}
+
+impl KubeClient {
+    pub fn client() -> &'static KubeClient {
+        KUBE_CLIENT.get().expect("Client not initialized")
     }
 }
 
@@ -203,8 +214,8 @@ async fn get_all_pod_info() -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Erro
         "Getting all pods in namespace {}...",
         LogRecorderConfig::global().namespace
     );
-    let client = get_kube_client().await;
-    let pods = Api::v1Pod(client.clone()).within(&LogRecorderConfig::global().namespace);
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
     let mut pod_info_vec: Vec<PodInfo> = vec![];
 
     for p in pods.list(&ListParams::default()).await? {
@@ -232,8 +243,7 @@ async fn get_all_pod_info() -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Erro
 
 /// An informer that will update the main thread pool if a new pod is spun up.
 pub async fn pod_informer() -> Result<(), Box<dyn ::std::error::Error>> {
-    let client = get_kube_client().await;
-    let events = Api::v1Event(client);
+    let events = Api::v1Event(KubeClient::client().client.clone());
     let ei = Informer::new(events).init().await?;
     loop {
         let mut events = ei.poll().await.unwrap().boxed();
@@ -284,8 +294,8 @@ async fn handle_events(ev: WatchEvent<v1Event>) -> Result<(), Box<dyn ::std::err
 /// Checks to see if the newly created pod is healthy, if the pod is healthy, then it is ready to
 /// be added to the logging threadpool
 async fn check_status(pod: &str) -> Result<bool, Box<dyn ::std::error::Error>> {
-    let client = get_kube_client().await;
-    let pods = Api::v1Pod(client).within(&LogRecorderConfig::global().namespace);
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
     let pod_obj = pods.get(pod).await?;
     let status = pod_obj.status.unwrap().phase.unwrap();
 
@@ -295,9 +305,9 @@ async fn check_status(pod: &str) -> Result<bool, Box<dyn ::std::error::Error>> {
     Ok(true)
 }
 
-// do something for this.  lazy_static doesnt support await syntax, and singleton maybe out of
-// scope.  Some overhead to this.
-async fn get_kube_client() -> APIClient {
+pub async fn create_kube_client() -> KubeClient {
     let config = config::load_kube_config().await.unwrap();
-    APIClient::new(config)
+    KubeClient {
+        client: APIClient::new(config),
+    }
 }
