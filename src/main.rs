@@ -3,16 +3,15 @@ mod kube;
 /// Main Entrypoint into the code
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn ::std::error::Error>> {
-    let config = kube::generate_config()?;
+    kube::CONFIG.set(kube::generate_config()).unwrap();
 
     // if informer is called, then spawn a new tokio task
-    let async_config = config.clone();
-    if async_config.update {
+    if kube::LogRecorderConfig::global().update {
         tokio::task::spawn(async move {
             println!("Starting Async Kube Informer");
-            kube::pod_informer(&async_config).await.unwrap();
+            kube::pod_informer().await.unwrap();
         });
     }
-    kube::run_logs(&config).await.unwrap();
+    kube::run_logs().await.unwrap();
     Ok(())
 }
