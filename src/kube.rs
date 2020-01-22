@@ -8,7 +8,7 @@ use std::str;
 
 use std::{thread, time};
 use structopt::StructOpt;
-use tokio_threadpool::{blocking, ThreadPool};
+use tokio_threadpool::{blocking, Builder};
 
 use futures::future::{lazy, poll_fn};
 use futures::Future;
@@ -73,7 +73,6 @@ pub struct LogRecorderConfig {
     pub update: bool,
 }
 
-
 pub static CONFIG: OnceCell<LogRecorderConfig> = OnceCell::new();
 
 impl LogRecorderConfig {
@@ -105,17 +104,14 @@ pub async fn run_logs() -> Result<(), Box<dyn ::std::error::Error>> {
 }
 
 ///  Kicks off the concurrent logging
-async fn run_cmd(
-    pods: Vec<PodInfo>,
-) -> Result<(), Box<dyn ::std::error::Error>> {
+async fn run_cmd(pods: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
     if LogRecorderConfig::global().file {
         tokio::fs::create_dir_all(&LogRecorderConfig::global().outfile).await?;
     }
 
-    // visit once cell to make this a singleton https://github.com/matklad/once_cell
-    let pool = ThreadPool::new();
-    
+    let pool = Builder::new().pool_size(1000).max_blocking(1000).build();
+
     println!("Beginning to tail logs, press <ctrl> + c to kill wufei...");
     for pod in pods {
         // In this chunk of code we are using a tokio threadpool.  The threadpool runs a task,
@@ -124,8 +120,7 @@ async fn run_cmd(
         // stream wrapper function that returns a poll.  This satisifies the pool.spawn function
         children.push(pool.spawn(lazy(move || {
             poll_fn(move || {
-                blocking(|| run_individual(&pod))
-                    .map_err(|_| panic!("the threadpool shutdown"))
+                blocking(|| run_individual(&pod)).map_err(|_| panic!("the threadpool shutdown"))
             })
         })));
     }
@@ -164,7 +159,7 @@ fn run_individual(pod_info: &PodInfo) {
     let reader = BufReader::new(output);
     let mut log_prefix = "[".to_owned() + &pod_info.parent + "][" + &pod_info.container + "]";
 
-    if  LogRecorderConfig::global().color {
+    if LogRecorderConfig::global().color {
         let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
         let str_color = color.unwrap().to_string(); // unwrap random
         log_prefix = log_prefix.color(str_color).to_string();
@@ -203,9 +198,11 @@ async fn run_individual_async(pod_info: PodInfo) {
 }
 
 /// Gather all information about the pods currently deployed in the users kubernetes cluster
-async fn get_all_pod_info(
-) -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Error>> {
-    println!("Getting all pods in namespace {}...", LogRecorderConfig::global().namespace); 
+async fn get_all_pod_info() -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Error>> {
+    println!(
+        "Getting all pods in namespace {}...",
+        LogRecorderConfig::global().namespace
+    );
     let client = get_kube_client().await;
     let pods = Api::v1Pod(client.clone()).within(&LogRecorderConfig::global().namespace);
     let mut pod_info_vec: Vec<PodInfo> = vec![];
@@ -214,8 +211,11 @@ async fn get_all_pod_info(
         for c in p.spec.containers {
             let container = c.name;
             let pod_name = p.metadata.name.to_string();
-            let file_name = 
-                LogRecorderConfig::global().outfile.to_string() + &pod_name + "-" + &container + ".txt";
+            let file_name = LogRecorderConfig::global().outfile.to_string()
+                + &pod_name
+                + "-"
+                + &container
+                + ".txt";
 
             let pod_info = PodInfo {
                 name: pod_name.clone(),

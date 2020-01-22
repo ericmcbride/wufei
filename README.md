@@ -54,6 +54,12 @@ cargo run -- --namespace=dev --kubeconfig=/my/full/path/kube.config --color
 If the `--kubeconfig` flag is not passed, then it was use you're current
 kube context
 
+## TOO MANY OPEN FILES ERROR
+This error will pop up, depending on the settings on your operating system.  This is due to
+security reasons.  Below is how you would fix this on a Mac.
+#### OS/X
+`ulimit -n 2048`
+
 ## CPU USAGE WARNING:
 Depending on what cloud provider you are using, and how your kubernetes configs / contexts are
 set up, you may have to generate a new token on each request.  That may not sound like a huge
