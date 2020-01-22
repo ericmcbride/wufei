@@ -1,22 +1,26 @@
-extern crate futures;
-extern crate tokio_threadpool;
-
-use crate::utils;
 use colored::*;
 use rand::seq::SliceRandom;
-use std::collections::{HashMap, VecDeque};
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::str;
 
+use std::{thread, time};
 use structopt::StructOpt;
-use tokio_threadpool::{blocking, ThreadPool};
+use tokio_threadpool::{blocking, Builder};
 
 use futures::future::{lazy, poll_fn};
 use futures::Future;
+
+use kube_async::{
+    api::v1Event,
+    api::{Api, Informer, ListParams, WatchEvent},
+    client::APIClient,
+    config,
+};
+use new_futures::stream::StreamExt;
+use once_cell::sync::OnceCell;
 
 /// Static string to hold values we want to use to differentiate between pod logs.  These colors
 /// are mapped from the colored cargo crate
@@ -37,83 +41,100 @@ static COLOR_VEC: &'static [&str] = &[
     "bright cyan",
 ];
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "basic")]
-pub struct LogRecorderConfig {
-    #[structopt(short, long, default_value = "kube-system")]
-    namespace: String,
+pub static CONFIG: OnceCell<LogRecorderConfig> = OnceCell::new();
+pub static KUBE_CLIENT: OnceCell<KubeClient> = OnceCell::new();
 
+#[derive(Clone, Debug, StructOpt)]
+#[structopt(
+    name = "Wufei",
+    about = "Tail ALL your kubernetes logs at once, or record them to files",
+    author = "Eric McBride <ericmcbridedeveloper@gmail.com> github.com/ericmcbride"
+)]
+pub struct LogRecorderConfig {
+    /// Namespace for logs
+    #[structopt(short, long, default_value = "kube-system")]
+    pub namespace: String,
+
+    /// The kube config for accessing your cluster.
     #[structopt(short, long = "kubeconfig", default_value = "")]
     kube_config: String,
 
-    #[structopt(short, long, default_value = "/tmp/wufei/")]
-    outfile: String,
-
+    /// Record the logs to a file. Note: Logs will not appear in stdout.
     #[structopt(short, long)]
     file: bool,
 
+    /// Outfile of where the logs are being recorded
+    #[structopt(short, long, default_value = "/tmp/wufei/")]
+    outfile: String,
+
+    /// Pods for the logs will appear in color in your terminal
     #[structopt(long)]
     color: bool,
+
+    /// Runs an informer, that will add new pods to the tailed logs
+    #[structopt(long)]
+    pub update: bool,
+}
+
+impl LogRecorderConfig {
+    pub fn global() -> &'static LogRecorderConfig {
+        CONFIG.get().expect("Config is not initialized")
+    }
+}
+
+pub struct KubeClient {
+    client: APIClient,
+}
+
+impl KubeClient {
+    pub fn client() -> &'static KubeClient {
+        KUBE_CLIENT.get().expect("Client not initialized")
+    }
 }
 
 /// Pod infromation
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct PodInfo {
     name: String,
     container: String,
     parent: String,
+    file_name: String,
 }
 
 /// Cli options for wufei
-pub fn run() -> Result<(LogRecorderConfig), Box<dyn::std::error::Error>> {
+pub fn generate_config() -> LogRecorderConfig {
     let opt = LogRecorderConfig::from_args();
-    Ok(opt)
+    opt
 }
 
 /// Entrypoint for the tailing of the logs
-pub fn run_logs(log_options: &LogRecorderConfig) -> Result<(), Box<dyn::std::error::Error>> {
-    let pod_vec = get_all_pod_info(&log_options.namespace, &log_options.kube_config)?;
-    let pod_hashmap = generate_hashmap(pod_vec, &log_options.outfile);
-    run_cmd(pod_hashmap, &log_options)?;
+pub async fn run_logs() -> Result<(), Box<dyn ::std::error::Error>> {
+    let pod_vec = get_all_pod_info().await?;
+    run_cmd(pod_vec).await?;
     Ok(())
 }
 
 ///  Kicks off the concurrent logging
-fn run_cmd(
-    pod_hashmap: HashMap<String, PodInfo>,
-    log_options: &LogRecorderConfig,
-) -> Result<(), Box<dyn::std::error::Error>> {
+async fn run_cmd(pods: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut children = vec![];
-    fs::create_dir_all(&log_options.outfile)?;
+    if LogRecorderConfig::global().file {
+        tokio::fs::create_dir_all(&LogRecorderConfig::global().outfile).await?;
+    }
 
-    let pool = ThreadPool::new();
-    for (k, v) in pod_hashmap {
-        let namespace = log_options.namespace.clone();
-        let kube_config = log_options.kube_config.clone();
-        let file = log_options.file.clone();
-        let color = log_options.color.clone();
+    let pool = Builder::new().pool_size(1000).max_blocking(1000).build();
 
+    println!("Beginning to tail logs, press <ctrl> + c to kill wufei...");
+    for pod in pods {
         // In this chunk of code we are using a tokio threadpool.  The threadpool runs a task,
         // which can easily be compared to a green thread or a GO routine.  We do not have a
         // complicated requirement here, so we use just use futures built in poll_fn which is a
         // stream wrapper function that returns a poll.  This satisifies the pool.spawn function
         children.push(pool.spawn(lazy(move || {
             poll_fn(move || {
-                blocking(|| {
-                    run_individual(
-                        k.to_string(),
-                        &v,
-                        namespace.to_owned(),
-                        kube_config.to_owned(),
-                        file.to_owned(),
-                        color.to_owned(),
-                    )
-                })
-                .map_err(|_| panic!("the threadpool shutdown"))
+                blocking(|| run_individual(&pod)).map_err(|_| panic!("the threadpool shutdown"))
             })
         })));
     }
-
     pool.shutdown_on_idle().wait().unwrap();
     Ok(())
 }
@@ -124,28 +145,19 @@ fn run_cmd(
 /// out to stdout in a non-blocking fashion.  If an error happens, instead of handling using
 /// channels, we are just writing the stderr into the output file if the flag exists.  If not the
 /// thread (or pod) buffer will not be outputted to stdout
-fn run_individual(
-    k: String,
-    v: &PodInfo,
-    namespace: String,
-    kube_config: String,
-    file: bool,
-    color_on: bool,
-) {
+fn run_individual(pod_info: &PodInfo) {
     let mut kube_cmd = Command::new("kubectl");
-    let container = get_app_container(&v.container);
-
-    if kube_config.len() != 0 {
+    if LogRecorderConfig::global().kube_config.len() != 0 {
         kube_cmd.arg("--kubeconfig");
-        kube_cmd.arg(&kube_config);
+        kube_cmd.arg(&LogRecorderConfig::global().kube_config);
     }
 
     kube_cmd.arg("logs");
     kube_cmd.arg("-f");
-    kube_cmd.arg(&v.parent);
-    kube_cmd.arg(&container);
+    kube_cmd.arg(&pod_info.parent);
+    kube_cmd.arg(&pod_info.container);
     kube_cmd.arg("-n");
-    kube_cmd.arg(&namespace);
+    kube_cmd.arg(&LogRecorderConfig::global().namespace);
     kube_cmd.stdout(Stdio::piped());
 
     let output = kube_cmd
@@ -156,16 +168,16 @@ fn run_individual(
         .unwrap();
 
     let reader = BufReader::new(output);
-    let mut log_prefix = "[".to_owned() + &v.parent + "][" + &container + "]";
+    let mut log_prefix = "[".to_owned() + &pod_info.parent + "][" + &pod_info.container + "]";
 
-    if color_on {
+    if LogRecorderConfig::global().color {
         let color = COLOR_VEC.choose(&mut rand::thread_rng()); // get random color
         let str_color = color.unwrap().to_string(); // unwrap random
         log_prefix = log_prefix.color(str_color).to_string();
     }
 
-    if file {
-        let mut out_file = File::create(&k.to_string()).unwrap();
+    if LogRecorderConfig::global().file {
+        let mut out_file = File::create(&pod_info.file_name).unwrap();
         reader
             .lines()
             .filter_map(|line| line.ok())
@@ -184,72 +196,118 @@ fn run_individual(
     }
 }
 
-/// Gets the container for the app.  Helps with the gathering of logs by using the deployment -
-/// container log strategy instead of the pods.  If we were doing the kubernetes pod logging
-/// strategy, we could run into issues if someone was using linkerd or istio, since envoy
-/// sidecars are present.
-fn get_app_container(containers: &str) -> String {
-    let container = containers.split_whitespace();
-    let container_vec: Vec<&str> = container.collect();
-    container_vec[0].to_string()
+/// A thin wrapper around the run_individual function. This allows adding of new pods to the
+/// threadpool.  Hopefully there will be a cleaner way to do this in the future.  Feels like a hack right now
+async fn run_individual_async(pod_info: PodInfo) {
+    thread::spawn(move || {
+        println!(
+            "Informer found new pod: {:?} with container: {:?}, starting to tail the logs",
+            pod_info.name, pod_info.container,
+        );
+        run_individual(&pod_info)
+    });
 }
 
 /// Gather all information about the pods currently deployed in the users kubernetes cluster
-fn get_all_pod_info(
-    namespace: &str,
-    kube_config: &str,
-) -> Result<Vec<String>, Box<dyn::std::error::Error>> {
-    let mut kube_cmd = Command::new("kubectl");
-    if kube_config.len() != 0 {
-        kube_cmd.arg("--kubeconfig");
-        kube_cmd.arg(&kube_config);
+async fn get_all_pod_info() -> Result<(Vec<PodInfo>), Box<dyn ::std::error::Error>> {
+    println!(
+        "Getting all pods in namespace {}...",
+        LogRecorderConfig::global().namespace
+    );
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
+    let mut pod_info_vec: Vec<PodInfo> = vec![];
+
+    for p in pods.list(&ListParams::default()).await? {
+        for c in p.spec.containers {
+            let container = c.name;
+            let pod_name = p.metadata.name.to_string();
+            let file_name = LogRecorderConfig::global().outfile.to_string()
+                + &pod_name
+                + "-"
+                + &container
+                + ".txt";
+
+            let pod_info = PodInfo {
+                name: pod_name.clone(),
+                container: container,
+                parent: pod_name.clone(),
+                file_name: file_name,
+            };
+            pod_info_vec.push(pod_info);
+        }
     }
-    kube_cmd.arg("get");
-    kube_cmd.arg("pods");
-    kube_cmd.arg("-n");
-    kube_cmd.arg(&namespace);
-    kube_cmd.arg("-o");
-    kube_cmd.arg("jsonpath={range .items[*]}{.metadata.name} {.spec['containers', 'initContainers'][*].name}\n{end}");
 
-    let output = kube_cmd.output().expect("Failed to get kubernetes pods");
-
-    if output.stderr.len() != 0 {
-        let byte_string = String::from_utf8_lossy(&output.stderr);
-        utils::generate_err(byte_string.to_string())?
-    }
-
-    let pods = str::from_utf8(&output.stdout)?;
-    let pods_vec: Vec<&str> = pods.split("\n").collect();
-    Ok(pods_vec.iter().map(|&x| x.to_string()).collect())
+    Ok(pod_info_vec)
 }
 
-/// We generate a hashmap with the key being the file_path (easy access to write files), and the
-/// value being a PodInfo struct
-fn generate_hashmap(pod_vec: Vec<String>, outfile: &str) -> HashMap<String, PodInfo> {
-    let mut pods_hashmap = HashMap::new();
-    for info in pod_vec {
-        if info == "" {
-            continue;
-        }
+/// An informer that will update the main thread pool if a new pod is spun up.
+pub async fn pod_informer() -> Result<(), Box<dyn ::std::error::Error>> {
+    let events = Api::v1Event(KubeClient::client().client.clone());
+    let ei = Informer::new(events).init().await?;
+    loop {
+        let mut events = ei.poll().await.unwrap().boxed();
 
-        let pod_info = info.split_whitespace();
-        let mut pod_info_vec: VecDeque<&str> = pod_info.collect();
-        let parent_pod_name = &pod_info_vec.pop_front().unwrap();
-
-        for pod in pod_info_vec {
-            let file_path = outfile.to_owned() + &parent_pod_name + "-" + &pod + ".txt";
-            let containers = &pod;
-            let name = parent_pod_name.to_string() + "-" + &pod.to_string();
-            pods_hashmap.insert(
-                file_path,
-                PodInfo {
-                    name: name.to_string(),
-                    container: containers.to_string(),
-                    parent: parent_pod_name.to_string(),
-                },
-            );
+        while let Some(event) = events.next().await {
+            let event = event?;
+            handle_events(event).await?;
         }
     }
+}
 
-    pods_hashmap
+/// Watches for an event.  If there is a new added event, we check if its a created pod type.  If
+/// it is we see if the pod exists in the clusters namespace, and if it does exist, we make sure
+/// the pod is healthy.  If the pod is healthy, we had it to the threadpool and begin tailing the
+/// containers in the pod
+async fn handle_events(ev: WatchEvent<v1Event>) -> Result<(), Box<dyn ::std::error::Error>> {
+    match ev {
+        WatchEvent::Added(o) => {
+            if o.message.contains("Created pod") {
+                println!("{}, checking to see if this event effects wufei", o.message);
+
+                let pod_message: Vec<&str> = o.message.split(":").collect();
+                let pod_str = pod_message[1].trim();
+
+                let pods = get_all_pod_info().await?;
+                for p in pods {
+                    if pod_str == p.name {
+                        loop {
+                            let healthy = check_status(&p.name).await?;
+                            if healthy {
+                                break;
+                            }
+                            let five_secs = time::Duration::from_secs(5);
+                            thread::sleep(five_secs);
+                        }
+                        run_individual_async(p).await;
+                    }
+                }
+            }
+        }
+        WatchEvent::Modified(_) => {}
+        WatchEvent::Deleted(_) => {}
+        WatchEvent::Error(_) => {}
+    }
+    Ok(())
+}
+
+/// Checks to see if the newly created pod is healthy, if the pod is healthy, then it is ready to
+/// be added to the logging threadpool
+async fn check_status(pod: &str) -> Result<bool, Box<dyn ::std::error::Error>> {
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
+    let pod_obj = pods.get(pod).await?;
+    let status = pod_obj.status.unwrap().phase.unwrap();
+
+    if status != "Running" {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+pub async fn create_kube_client() -> KubeClient {
+    let config = config::load_kube_config().await.unwrap();
+    KubeClient {
+        client: APIClient::new(config),
+    }
 }
