@@ -195,9 +195,7 @@ async fn run_individual_async(pod_info: PodInfo) {
             "Informer found new pod: {:?} with container: {:?}, starting to tail the logs",
             pod_info.name, pod_info.container,
         );
-        println!("before");
         run_individual(&pod_info).await.unwrap();
-        println!("after");
     });
 
     tokio::task::spawn(async {
