@@ -9,13 +9,16 @@ use structopt::StructOpt;
 
 use kube_async::{
     api::v1Event,
-    api::{Api, Informer, ListParams, LogParams, WatchEvent},
+    api::{Api, Informer, ListParams, LogParams, Object, WatchEvent},
     client::APIClient,
     config,
 };
 
 use futures::stream::StreamExt;
+use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use once_cell::sync::OnceCell;
+
+type Pod = Object<PodSpec, PodStatus>;
 
 /// Static string to hold values we want to use to differentiate between pod logs.  These colors
 /// are mapped from the colored cargo crate
@@ -105,15 +108,21 @@ pub async fn run_logs() -> Result<(), Box<dyn ::std::error::Error>> {
 }
 
 ///  Kicks off the concurrent logging
-async fn run_cmd(pods: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Error>> {
+async fn run_cmd(pod_info: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Error>> {
     if LogRecorderConfig::global().file {
         tokio::fs::create_dir_all(&LogRecorderConfig::global().outfile).await?;
     }
-    println!("Beginning to tail logs, give it a few seconds to start... press <ctrl> + c to kill wufei...");
+
+    println!("Beginning to tail logs ... press <ctrl> + c to kill wufei...");
     let mut children = Vec::new();
-    for pod in pods {
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
+
+    for pod in pod_info {
+        // Have to clone in order to get value in new scope
+        let p = pods.clone();
         children.push(tokio::task::spawn(async move {
-            run_individual(&pod).await.unwrap()
+            run_individual(&pod, &p).await.unwrap()
         }));
     }
 
@@ -132,9 +141,10 @@ async fn run_cmd(pods: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Error>>
 /// out to stdout in a non-blocking fashion.  If an error happens, instead of handling using
 /// channels, we are just writing the stderr into the output file if the flag exists.  If not the
 /// thread (or pod) buffer will not be outputted to stdout
-async fn run_individual(pod_info: &PodInfo) -> Result<(), Box<dyn ::std::error::Error>> {
-    let pods = Api::v1Pod(KubeClient::client().client.clone())
-        .within(&LogRecorderConfig::global().namespace);
+async fn run_individual(
+    pod_info: &PodInfo,
+    current_pods: &Api<Pod>,
+) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut lp = LogParams::default();
     let container = &pod_info.container;
     lp.follow = true;
@@ -160,7 +170,7 @@ async fn run_individual(pod_info: &PodInfo) -> Result<(), Box<dyn ::std::error::
         None
     };
 
-    let mut output = pods.log_follow(&pod_info.name, &lp).await?.boxed();
+    let mut output = current_pods.log_follow(&pod_info.name, &lp).await?.boxed();
     while let Some(line) = output.next().await {
         let unpacked_line = line.unwrap();
         let log_msg = format!(
@@ -190,12 +200,14 @@ fn stdout(log_msg: String) -> Result<(), Box<dyn ::std::error::Error>> {
 /// A thin adapter function that will add a new tokio task to the task pool, to follow any new
 /// pods that the informer alerts us too.
 async fn run_individual_async(pod_info: PodInfo) {
+    let pods = Api::v1Pod(KubeClient::client().client.clone())
+        .within(&LogRecorderConfig::global().namespace);
     let single_task = tokio::task::spawn(async move {
         println!(
             "Informer found new pod: {:?} with container: {:?}, starting to tail the logs",
             pod_info.name, pod_info.container,
         );
-        run_individual(&pod_info).await.unwrap();
+        run_individual(&pod_info, &pods).await.unwrap();
     });
 
     tokio::task::spawn(async {
