@@ -17,7 +17,7 @@ Video coming soon
 
 ## CLI Arguments
 ```
-Wufei 0.2.1
+Wufei 0.2.2
 Eric McBride <ericmcbridedeveloper@gmail.com> github.com/ericmcbride
 Tail ALL your kubernetes logs at once, or record them to files
 
@@ -34,6 +34,7 @@ FLAGS:
 OPTIONS:
     -n, --namespace <namespace>    Namespace for logs [default: kube-system]
     -o, --outfile <outfile>        Outfile of where the logs are being recorded [default: /tmp/wufei/]
+        --selector <selector>      Select pods by label example: version=v1
 ```
 
 Wufei requires a namespace.
@@ -44,11 +45,15 @@ Wufei requires a namespace.
 - The namespace option `--namespace` is the namespace the developer wants to use to tail logs from
 - The outfile option `--outfile` is used when the file flag is used, to change the location of
   where the files are used
-
-Example:
+- The selector option `--selector` will allow a single key/value pair to tail logs by.  Example
+  would be `--selector='version=v1'`
+Examples:
 
 ```
-cargo run -- --namespace=dev --color
+cargo run -- --namespace=default --color
+cargo run -- --namespace=default --selector='version=v1' --update
+cargo run -- --namespace=default --file --outfile=/tmp/new_outfile --update
+cargo run -- --namespace=default --selector=`version=v1` --file
 ```
 
 ## WUFEI USES YOUR CURRENT KUBE CONTEXT

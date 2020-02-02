@@ -68,6 +68,10 @@ pub struct LogRecorderConfig {
     /// Runs an informer, that will add new pods to the tailed logs
     #[structopt(long)]
     pub update: bool,
+
+    /// Select pods by label example: version=v1
+    #[structopt(long)]
+    pub selector: Option<String>,
 }
 
 impl LogRecorderConfig {
@@ -224,8 +228,10 @@ async fn get_all_pod_info() -> Result<Vec<PodInfo>, Box<dyn ::std::error::Error>
     let pods = Api::v1Pod(KubeClient::client().client.clone())
         .within(&LogRecorderConfig::global().namespace);
     let mut pod_info_vec: Vec<PodInfo> = vec![];
+    let mut lp = ListParams::default();
+    lp.label_selector = LogRecorderConfig::global().selector.clone();
 
-    for p in pods.list(&ListParams::default()).await? {
+    for p in pods.list(&lp).await? {
         for c in p.spec.containers {
             let container = c.name;
             let pod_name = p.metadata.name.to_string();
