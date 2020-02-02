@@ -1,7 +1,9 @@
 use colored::*;
 use rand::seq::SliceRandom;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
+
+use tokio::fs::{File, OpenOptions};
+use tokio::io::AsyncWriteExt;
+
 use std::str;
 
 use std::{thread, time};
@@ -163,12 +165,13 @@ async fn run_individual(
         log_prefix = log_prefix.color(str_color).to_string();
     }
 
-    let out_file = if LogRecorderConfig::global().file {
+    let mut out_file = if LogRecorderConfig::global().file {
         Some(
             OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(&pod_info.file_name)?,
+                .open(&pod_info.file_name)
+                .await?,
         )
     } else {
         None
@@ -184,20 +187,20 @@ async fn run_individual(
         );
 
         match out_file {
-            Some(ref file) => record(&file, log_msg)?,
-            None => stdout(log_msg)?,
+            Some(ref mut file) => record(file, log_msg).await?,
+            None => stdout(log_msg).await?,
         }
     }
     Ok(())
 }
 
-fn record(mut out_file: &File, log_msg: String) -> Result<(), Box<dyn ::std::error::Error>> {
-    out_file.write(&log_msg.as_bytes())?;
+async fn record(out_file: &mut File, log_msg: String) -> Result<(), Box<dyn ::std::error::Error>> {
+    out_file.write(&log_msg.as_bytes()).await?;
     Ok(())
 }
 
-fn stdout(log_msg: String) -> Result<(), Box<dyn ::std::error::Error>> {
-    let _ = std::io::stdout().write(log_msg.as_bytes());
+async fn stdout(log_msg: String) -> Result<(), Box<dyn ::std::error::Error>> {
+    let _ = tokio::io::stdout().write(log_msg.as_bytes()).await?;
     Ok(())
 }
 
