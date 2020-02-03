@@ -33,10 +33,11 @@ FLAGS:
     -V, --version     Prints version information
 
 OPTIONS:
+        --json-key <json-key>        key to search for in the json, prints out the value. Only single key supported
     -n, --namespace <namespace>      Namespace for logs [default: kube-system]
     -o, --outfile <outfile>          Outfile of where the logs are being recorded [default: /tmp/wufei/]
         --selector <selector>        Select pods by label example: version=v1
-        --since <since>              Only return logs newer then a duartion in seconds like 1, 60, or 180
+        --since <since>              Only return logs newer then a duration in seconds like 1, 60, or 180
         --tail-lines <tail-lines>    If set, the number of lines from the end of the logs to show [default: 1]
 ```
 
@@ -55,6 +56,9 @@ Wufei requires a namespace.
 - The since option `--since` will return logs newer then the duration in seconds.
 - The tail-lines option `--tail-lines` will show the number of lines from the ends of the log to
   show.  Defaults to 1
+- The json-key option `--json-key` allows the user to seach logs for a key in a valid json blob.
+  The only thing wufei will print out are logs that contain the key.  If nothing is printing out,
+  nothing matches
 
 Examples:
 
@@ -64,9 +68,11 @@ cargo run -- --namespace=default --selector='version=v1' --update
 cargo run -- --namespace=default --file --outfile=/tmp/new_outfile --update
 cargo run -- --namespace=default --selector=`version=v1` --file
 cargo run -- --namespace=default --previous --tail-lines=20 --color
-cargo run -- --namespace=dev --previous --color
-cargo run -- --namespace=dev --previous --since=1800
+cargo run -- --namespace=default --previous --color
+cargo run -- --namespace=default --previous --since=1800
 cargo run -- --namespace=default --previous --tail-lines=20 --color --selector='version=v1'
+cargo run -- --namespace=default --color --json-key=X-REQUEST-ID
+cargo run -- --namespace=default --file --json-key=user_id --select='version=v2'
 ```
 
 ## WUFEI USES YOUR CURRENT KUBE CONTEXT
