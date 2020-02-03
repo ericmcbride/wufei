@@ -214,7 +214,7 @@ async fn run_individual(
                     };
                     log
                 }
-                Err(_) => format!("{}", ""),
+                Err(_) => format!(""),
             }
         } else {
             format!(
