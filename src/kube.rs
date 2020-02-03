@@ -19,6 +19,7 @@ use kube_async::{
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use once_cell::sync::OnceCell;
+use serde_json::Value;
 
 type Pod = Object<PodSpec, PodStatus>;
 
@@ -86,6 +87,10 @@ pub struct LogRecorderConfig {
     /// If set, the number of lines from the end of the logs to show.
     #[structopt(long, default_value = "1")]
     tail_lines: i64,
+
+    /// key to search for in the json, prints out the value. Only single key supported
+    #[structopt(long)]
+    json_key: Option<String>,
 }
 
 impl LogRecorderConfig {
@@ -194,11 +199,30 @@ async fn run_individual(
     let mut output = current_pods.log_follow(&pod_info.name, &lp).await?.boxed();
     while let Some(line) = output.next().await {
         let unpacked_line = line.unwrap();
-        let log_msg = format!(
-            "{}: {:?}\n",
-            &log_prefix,
-            String::from_utf8_lossy(&unpacked_line)
-        );
+        let log_msg = if LogRecorderConfig::global().json_key != None {
+            let line_str = String::from_utf8_lossy(&unpacked_line);
+            let key = &LogRecorderConfig::global().json_key.as_ref().unwrap();
+            let json_blob: Result<Value, serde_json::error::Error> =
+                serde_json::from_str(&line_str);
+            match json_blob {
+                Ok(json_b) => {
+                    let j: Value = json_b;
+                    let log = if j[key].is_null() {
+                        format!("")
+                    } else {
+                        format!("{}: {:?}\n", &log_prefix, line_str)
+                    };
+                    log
+                }
+                Err(_) => format!(""),
+            }
+        } else {
+            format!(
+                "{}: {:?}\n",
+                &log_prefix,
+                String::from_utf8_lossy(&unpacked_line)
+            )
+        };
 
         match out_file {
             Some(ref mut file) => record(file, log_msg).await?,
