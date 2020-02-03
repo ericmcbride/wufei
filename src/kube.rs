@@ -53,7 +53,7 @@ pub static KUBE_CLIENT: OnceCell<KubeClient> = OnceCell::new();
 pub struct LogRecorderConfig {
     /// Namespace for logs
     #[structopt(short, long, default_value = "kube-system")]
-    pub namespace: String,
+    namespace: String,
 
     /// Record the logs to a file. Note: Logs will not appear in stdout.
     #[structopt(short, long)]
@@ -73,7 +73,19 @@ pub struct LogRecorderConfig {
 
     /// Select pods by label example: version=v1
     #[structopt(long)]
-    pub selector: Option<String>,
+    selector: Option<String>,
+
+    /// Grab previous logs
+    #[structopt(long)]
+    previous: bool,
+
+    /// Only return logs newer then a duration in seconds like 1, 60, or 180
+    #[structopt(long)]
+    since: Option<i64>,
+
+    /// If set, the number of lines from the end of the logs to show.
+    #[structopt(long, default_value = "1")]
+    tail_lines: i64,
 }
 
 impl LogRecorderConfig {
@@ -155,7 +167,9 @@ async fn run_individual(
     let container = &pod_info.container;
     lp.follow = true;
     lp.container = Some(container.to_owned());
-    lp.tail_lines = Some(1);
+    lp.tail_lines = Some(LogRecorderConfig::global().tail_lines);
+    lp.previous = LogRecorderConfig::global().previous;
+    lp.since_seconds = LogRecorderConfig::global().since;
 
     let mut log_prefix = "[".to_owned() + &pod_info.name + "][" + &pod_info.container + "]";
 

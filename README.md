@@ -17,7 +17,7 @@ Video coming soon
 
 ## CLI Arguments
 ```
-Wufei 0.2.2
+Wufei 0.2.3
 Eric McBride <ericmcbridedeveloper@gmail.com> github.com/ericmcbride
 Tail ALL your kubernetes logs at once, or record them to files
 
@@ -25,28 +25,37 @@ USAGE:
     wufei [FLAGS] [OPTIONS]
 
 FLAGS:
-        --color      Pods for the logs will appear in color in your terminal
-    -f, --file       Record the logs to a file. Note: Logs will not appear in stdout
-    -h, --help       Prints help information
-        --update     Runs an informer, that will add new pods to the tailed logs
-    -V, --version    Prints version information
+        --color       Pods for the logs will appear in color in your terminal
+    -f, --file        Record the logs to a file. Note: Logs will not appear in stdout
+    -h, --help        Prints help information
+        --previous    Grab previous logs
+        --update      Runs an informer, that will add new pods to the tailed logs
+    -V, --version     Prints version information
 
 OPTIONS:
-    -n, --namespace <namespace>    Namespace for logs [default: kube-system]
-    -o, --outfile <outfile>        Outfile of where the logs are being recorded [default: /tmp/wufei/]
-        --selector <selector>      Select pods by label example: version=v1
+    -n, --namespace <namespace>      Namespace for logs [default: kube-system]
+    -o, --outfile <outfile>          Outfile of where the logs are being recorded [default: /tmp/wufei/]
+        --selector <selector>        Select pods by label example: version=v1
+        --since <since>              Only return logs newer then a duartion in seconds like 1, 60, or 180
+        --tail-lines <tail-lines>    If set, the number of lines from the end of the logs to show [default: 1]
 ```
 
 Wufei requires a namespace.
 - The color flog `--color` will display pod names in colors in stdout.
 - The file flag `--file` will write the logs to /tmp/wufei/<podname> based on pod name.
 - The update flag `--update` will spin up an informer that will listen for new pods to spin up
+- The previous flag `--previous` will show a previous containers logs.  Specify `--tail-lines` or
+  it will only show you the last line from it.
 
 - The namespace option `--namespace` is the namespace the developer wants to use to tail logs from
 - The outfile option `--outfile` is used when the file flag is used, to change the location of
   where the files are used
 - The selector option `--selector` will allow a single key/value pair to tail logs by.  Example
   would be `--selector='version=v1'`
+- The since option `--since` will return logs newer then the duration in seconds.
+- The tail-lines option `--tail-lines` will show the number of lines from the ends of the log to
+  show.  Defaults to 1
+
 Examples:
 
 ```
@@ -54,10 +63,14 @@ cargo run -- --namespace=default --color
 cargo run -- --namespace=default --selector='version=v1' --update
 cargo run -- --namespace=default --file --outfile=/tmp/new_outfile --update
 cargo run -- --namespace=default --selector=`version=v1` --file
+cargo run -- --namespace=default --previous --tail-lines=20 --color
+cargo run -- --namespace=dev --previous --color
+cargo run -- --namespace=dev --previous --since=1800
+cargo run -- --namespace=default --previous --tail-lines=20 --color --selector='version=v1'
 ```
 
 ## WUFEI USES YOUR CURRENT KUBE CONTEXT
-$KUBECONFIG=:$KUBECONFIG/path/to/your/config
+`export $KUBECONFIG=:$KUBECONFIG/path/to/your/config`
 
 #### LIST CONTEXTS
 `kubectl config view`
