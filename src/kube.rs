@@ -170,7 +170,6 @@ async fn run_individual(
 ) -> Result<(), Box<dyn ::std::error::Error>> {
     let mut lp = LogParams::default();
     let container = &pod_info.container;
-    lp.follow = true;
     lp.container = Some(container.to_owned());
     lp.tail_lines = Some(LogRecorderConfig::global().tail_lines);
     lp.previous = LogRecorderConfig::global().previous;
