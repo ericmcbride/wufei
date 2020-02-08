@@ -174,6 +174,7 @@ async fn run_individual(
     lp.tail_lines = Some(LogRecorderConfig::global().tail_lines);
     lp.previous = LogRecorderConfig::global().previous;
     lp.since_seconds = LogRecorderConfig::global().since;
+    lp.follow = true;
 
     let mut log_prefix = "[".to_owned() + &pod_info.name + "][" + &pod_info.container + "]";
 
@@ -195,7 +196,7 @@ async fn run_individual(
         None
     };
 
-    let mut output = current_pods.log_follow(&pod_info.name, &lp).await?.boxed();
+    let mut output = current_pods.log_stream(&pod_info.name, &lp).await?.boxed();
     while let Some(line) = output.next().await {
         let unpacked_line = line.unwrap();
         let log_msg = if LogRecorderConfig::global().json_key != None {
