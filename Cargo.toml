@@ -1,6 +1,6 @@
 [package]
 name = "wufei"
-version = "0.2.3"
+version = "0.3.1"
 authors = ["Eric McBride <ericmcbridedeveloper@gmail.com>"]
 edition = "2018"
 
