@@ -17,7 +17,7 @@ Video coming soon
 
 ## CLI Arguments
 ```
-Wufei 0.2.3
+Wufei 0.3.1
 Eric McBride <ericmcbridedeveloper@gmail.com> github.com/ericmcbride
 Tail ALL your kubernetes logs at once, or record them to files
 
@@ -27,6 +27,7 @@ USAGE:
 FLAGS:
         --color       Pods for the logs will appear in color in your terminal
     -f, --file        Record the logs to a file. Note: Logs will not appear in stdout
+        --gather      Dont follow the logs, but gather all of them at once
     -h, --help        Prints help information
         --previous    Grab previous logs
         --update      Runs an informer, that will add new pods to the tailed logs
@@ -47,6 +48,8 @@ Wufei requires a namespace.
 - The update flag `--update` will spin up an informer that will listen for new pods to spin up
 - The previous flag `--previous` will show a previous containers logs.  Specify `--tail-lines` or
   it will only show you the last line from it.
+- The `--gather` flag will gather all logs.  To be used with `--tail-lines` or you will just get 1
+  log back.
 
 - The namespace option `--namespace` is the namespace the developer wants to use to tail logs from
 - The outfile option `--outfile` is used when the file flag is used, to change the location of
@@ -73,6 +76,7 @@ cargo run -- --namespace=default --previous --since=1800
 cargo run -- --namespace=default --previous --tail-lines=20 --color --selector='version=v1'
 cargo run -- --namespace=default --color --json-key=X-REQUEST-ID
 cargo run -- --namespace=default --file --json-key=user_id --select='version=v2'
+cargo run -- --namespace=default --tail-lines=10000000 --gather --file
 ```
 
 ## WUFEI USES YOUR CURRENT KUBE CONTEXT
