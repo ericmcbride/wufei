@@ -16,11 +16,11 @@ use kube_async::{
     config,
 };
 
+use futures::future;
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use once_cell::sync::OnceCell;
 use serde_json::Value;
-use futures::future;
 
 type Pod = Object<PodSpec, PodStatus>;
 
@@ -92,7 +92,7 @@ pub struct LogRecorderConfig {
     /// key to search for in the json, prints out the value. Only single key supported
     #[structopt(long)]
     json_key: Option<String>,
-    
+
     /// Dont follow the logs, but gather all of them at once
     #[structopt(long)]
     gather: bool,
@@ -147,6 +147,9 @@ async fn run_cmd(pod_info: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Err
         .within(&LogRecorderConfig::global().namespace);
 
     for pod in pod_info {
+        if pod.container.contains("istio-init") || pod.container.contains("istio-proxy") {
+            continue;
+        }
         let p = pods.clone();
         children.push(tokio::task::spawn(async move {
             run_individual(&pod, &p).await.unwrap()
@@ -190,7 +193,7 @@ async fn run_individual(
     } else {
         None
     };
-    
+
     if LogRecorderConfig::global().gather {
         lp.follow = false;
         lp.pretty = true;
@@ -200,7 +203,7 @@ async fn run_individual(
             Some(ref mut file) => record(file, output).await?,
             None => stdout(log_msg).await?,
         }
-        return Ok(())
+        return Ok(());
     }
 
     let mut output = current_pods.log_stream(&pod_info.name, &lp).await?.boxed();
