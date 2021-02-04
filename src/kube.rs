@@ -1,5 +1,6 @@
 use colored::*;
 use rand::seq::SliceRandom;
+use std::time::SystemTime;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
@@ -16,11 +17,11 @@ use kube_async::{
     config,
 };
 
+use futures::future;
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use once_cell::sync::OnceCell;
 use serde_json::Value;
-use futures::future;
 
 type Pod = Object<PodSpec, PodStatus>;
 
@@ -92,10 +93,14 @@ pub struct LogRecorderConfig {
     /// key to search for in the json, prints out the value. Only single key supported
     #[structopt(long)]
     json_key: Option<String>,
-    
+
     /// Dont follow the logs, but gather all of them at once
     #[structopt(long)]
     gather: bool,
+
+    /// Subtract current time from this number in seconds
+    #[structopt(long, env = "WUFEI_TIME_SINCE")]
+    time_since: Option<i64>,
 }
 
 impl LogRecorderConfig {
@@ -147,6 +152,9 @@ async fn run_cmd(pod_info: Vec<PodInfo>) -> Result<(), Box<dyn ::std::error::Err
         .within(&LogRecorderConfig::global().namespace);
 
     for pod in pod_info {
+        if pod.container.contains("istio-init") || pod.container.contains("istio-proxy") {
+            continue;
+        }
         let p = pods.clone();
         children.push(tokio::task::spawn(async move {
             run_individual(&pod, &p).await.unwrap()
@@ -190,17 +198,25 @@ async fn run_individual(
     } else {
         None
     };
-    
+
     if LogRecorderConfig::global().gather {
         lp.follow = false;
         lp.pretty = true;
+        if LogRecorderConfig::global().time_since.is_some() {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
+            lp.since_seconds =
+                Some(now.as_secs() as i64 - LogRecorderConfig::global().time_since.unwrap());
+        }
+
         let output = current_pods.log(&pod_info.name, &lp).await?;
         let log_msg = format!("{}: {:?}\n", &log_prefix, &output);
         match out_file {
             Some(ref mut file) => record(file, output).await?,
             None => stdout(log_msg).await?,
         }
-        return Ok(())
+        return Ok(());
     }
 
     let mut output = current_pods.log_stream(&pod_info.name, &lp).await?.boxed();
