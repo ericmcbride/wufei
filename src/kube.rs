@@ -1,5 +1,6 @@
 use colored::*;
 use rand::seq::SliceRandom;
+use std::time::SystemTime;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
@@ -96,6 +97,10 @@ pub struct LogRecorderConfig {
     /// Dont follow the logs, but gather all of them at once
     #[structopt(long)]
     gather: bool,
+
+    /// Subtract current time from this number in seconds
+    #[structopt(long)]
+    time_since: Option<i64>,
 }
 
 impl LogRecorderConfig {
@@ -197,6 +202,14 @@ async fn run_individual(
     if LogRecorderConfig::global().gather {
         lp.follow = false;
         lp.pretty = true;
+        if LogRecorderConfig::global().time_since.is_some() {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
+            lp.since_seconds =
+                Some(now.as_secs() as i64 - LogRecorderConfig::global().time_since.unwrap());
+        }
+
         let output = current_pods.log(&pod_info.name, &lp).await?;
         let log_msg = format!("{}: {:?}\n", &log_prefix, &output);
         match out_file {
