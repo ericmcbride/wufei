@@ -99,7 +99,7 @@ pub struct LogRecorderConfig {
     gather: bool,
 
     /// Subtract current time from this number in seconds
-    #[structopt(long)]
+    #[structopt(long, env = "WUFEI_TIME_SINCE")]
     time_since: Option<i64>,
 }
 
