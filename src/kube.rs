@@ -308,19 +308,13 @@ async fn get_all_pod_info() -> Result<Vec<PodInfo>, Box<dyn ::std::error::Error>
     let found_pods = pods.list(&lp).await?;
 
     if LogRecorderConfig::global().container.len() > 0 || LogRecorderConfig::global().pod.len() > 0 {
-        let mut pod_filter_map = HashMap::new();
-        let mut container_filter_map = HashMap::new();
 
         let filter_pods = LogRecorderConfig::global().pod.to_vec();
         let filter_containers = LogRecorderConfig::global().container.to_vec();
 
-        for filter_p in filter_pods {
-            pod_filter_map.insert(filter_p.clone(), true);
-        }
-
-        for filter_c in filter_containers {
-            container_filter_map.insert(filter_c.clone(), true);
-        }
+        
+        let pod_filter_map: HashMap<String, bool> = filter_pods.iter().map(|filter_p| (filter_p.clone(), true)).collect();
+        let container_filter_map: HashMap<String, bool> = filter_containers.iter().map(|filter_c| (filter_c.clone(), true)).collect();
 
         for p in found_pods {
             filter_pods_results(p, &pod_filter_map, &container_filter_map, &mut pod_info_vec);
