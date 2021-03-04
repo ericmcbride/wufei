@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 use std::str;
 
 use std::{thread, time};
+use std::collections::HashMap;
 use structopt::StructOpt;
 
 use kube_async::{
@@ -96,6 +97,15 @@ pub struct LogRecorderConfig {
     /// Dont follow the logs, but gather all of them at once
     #[structopt(long)]
     gather: bool,
+
+    /// Select containers by name
+    #[structopt(short, long)]
+    container: Vec<String>,
+
+    /// Select pods by name
+    #[structopt(long)]
+    pod: Vec<String>,
+
 }
 
 impl LogRecorderConfig {
@@ -120,6 +130,21 @@ pub struct PodInfo {
     name: String,
     container: String,
     file_name: String,
+}
+
+impl PodInfo {
+    pub fn new(name: String, container: String, file_path: String) -> PodInfo {
+        let full_file_path = file_path
+            + &name
+            + "-"
+            + &container
+            + ".txt";
+        PodInfo {
+            name: name,
+            container: container,
+            file_name: full_file_path,
+        }
+    }
 }
 
 /// Cli options for wufei
@@ -279,27 +304,94 @@ async fn get_all_pod_info() -> Result<Vec<PodInfo>, Box<dyn ::std::error::Error>
     let mut lp = ListParams::default();
     lp.label_selector = LogRecorderConfig::global().selector.clone();
 
-    for p in pods.list(&lp).await? {
-        for c in p.spec.containers {
-            let container = c.name;
-            let pod_name = p.metadata.name.to_string();
-            let file_name = LogRecorderConfig::global().outfile.to_string()
-                + &pod_name
-                + "-"
-                + &container
-                + ".txt";
+    
+    let found_pods = pods.list(&lp).await?;
 
-            let pod_info = PodInfo {
-                name: pod_name,
-                container: container,
-                file_name: file_name,
-            };
-            pod_info_vec.push(pod_info);
+    if LogRecorderConfig::global().container.len() > 0 || LogRecorderConfig::global().pod.len() > 0 {
+
+        let filter_pods = LogRecorderConfig::global().pod.to_vec();
+        let filter_containers = LogRecorderConfig::global().container.to_vec();
+
+        
+        let pod_filter_map: HashMap<String, bool> = filter_pods.iter().map(|filter_p| (filter_p.clone(), true)).collect();
+        let container_filter_map: HashMap<String, bool> = filter_containers.iter().map(|filter_c| (filter_c.clone(), true)).collect();
+
+        for p in found_pods {
+            filter_pods_results(p, &pod_filter_map, &container_filter_map, &mut pod_info_vec);
+        }
+        
+        if pod_info_vec.len() < 1 {
+            Err("no pods found with filter criteria")?;
+        }
+
+    } else {
+        for p in found_pods {
+            for c in p.spec.containers {
+                let container = c.name;
+                let pod_name = p.metadata.name.to_string();
+                let pod_info = PodInfo::new(pod_name, container, LogRecorderConfig::global().outfile.to_string());
+                pod_info_vec.push(pod_info);
+            }
         }
     }
 
     Ok(pod_info_vec)
 }
+
+fn filter_pods_results(input_pod: Pod, pod_filter: &HashMap<String, bool>, container_filter: &HashMap<String, bool>, filtered_pod_info: &mut Vec<PodInfo>) {
+
+    if pod_filter.capacity() > 0 {
+        match pod_filter.get(&input_pod.metadata.name.to_string()) {
+            Some(_t) => {
+                for c in input_pod.spec.containers {
+                
+                    if container_filter.capacity() > 0 {
+                        // only add if included in filter
+                        match container_filter.get(&c.name) {
+                            Some(_t) => {
+                                let pod_name = input_pod.metadata.name.to_string();
+                                let container = c.name;
+                                let pod_info = PodInfo::new(pod_name, container, LogRecorderConfig::global().outfile.to_string());
+                                filtered_pod_info.push(pod_info);
+                            },
+                            None => ()
+                        }
+                    } else {
+                        // add without container filter
+                        let pod_name = input_pod.metadata.name.to_string();
+                        let container = c.name;
+                        let pod_info = PodInfo::new(pod_name, container, LogRecorderConfig::global().outfile.to_string());
+                        filtered_pod_info.push(pod_info);
+                    }
+                }
+            
+            },
+            None => ()
+        }
+    } else {
+        for c in input_pod.spec.containers {
+            if container_filter.capacity() > 0 {
+                match container_filter.get(&c.name) {
+                    Some(_t) => {
+                        let pod_name = input_pod.metadata.name.to_string();
+                        let container = c.name;
+                        let pod_info = PodInfo::new(pod_name, container, LogRecorderConfig::global().outfile.to_string());
+                        filtered_pod_info.push(pod_info);
+                    },
+                    None => ()
+                }
+            } else {
+                // add without filter
+                let pod_name = input_pod.metadata.name.to_string();
+                let container = c.name;
+                let pod_info = PodInfo::new(pod_name, container, LogRecorderConfig::global().outfile.to_string());
+                filtered_pod_info.push(pod_info);
+            }
+        }
+    }
+
+}
+
 
 /// An informer that will update the main thread pool if a new pod is spun up.
 pub async fn pod_informer() -> Result<(), Box<dyn ::std::error::Error>> {
